@@ -45,8 +45,8 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 sku TEXT,
-                price REAL NOT NULL DEFAULT 0,
-                stock INTEGER NOT NULL DEFAULT 0,
+                price REAL DEFAULT 0,
+                stock INTEGER DEFAULT 0,
                 category_id INTEGER,
                 supplier_id INTEGER
             )""",
@@ -54,17 +54,17 @@ class Database:
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER,
-                date TEXT NOT NULL DEFAULT (date('now')),
-                status TEXT NOT NULL DEFAULT 'новый',
-                total REAL NOT NULL DEFAULT 0
+                date TEXT,
+                status TEXT DEFAULT 'новый',
+                total REAL DEFAULT 0
             )""",
             """
             CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL,
+                order_id INTEGER,
                 product_id INTEGER,
-                qty INTEGER NOT NULL DEFAULT 1,
-                price REAL NOT NULL DEFAULT 0
+                qty INTEGER DEFAULT 1,
+                price REAL DEFAULT 0
             )""",
         ]
         for stmt in stmts:
@@ -75,29 +75,43 @@ class Database:
     # Migrations
     # ------------------------------------------------------------------
     def _migrate(self):
-        """Add missing columns to existing tables."""
-        def has_column(table, col):
-            chk = self.conn.execute(
-                "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
-                (table, col)
-            ).fetchone()
-            return chk is not None
+        """Add missing columns to existing tables. Handles DEFAULT expressions."""
+        def has_column(table: str, col: str) -> bool:
+            (
+                c := self.
+conn.execute(
+                    "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
+                    (table, col)
+                ).fetchone()
+            ) is not None
+            return c
 
-        migrations = [
-            ("products", "sku", "ALTER TABLE products ADD COLUMN sku TEXT"),
-            ("products", "price", "ALTER TABLE products ADD COLUMN price REAL NOT NULL DEFAULT 0"),
-            ("products", "stock", "ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0"),
-            ("products", "category_id", "ALTER TABLE products ADD COLUMN category_id INTEGER"),
-            ("products", "supplier_id", "ALTER TABLE products ADD COLUMN supplier_id INTEGER"),
-            ("orders", "total", "ALTER TABLE orders ADD COLUMN total REAL NOT NULL DEFAULT 0"),
-        ]
-        for table, col, sql in migrations:
+        def add_col(table: str, col: str, sql: str):
             if not has_column(table, col):
                 try:
                     self.conn.execute(sql)
                     self.conn.commit()
                 except sqlite3.OperationalError:
                     pass
+
+        # products
+        add_col("products", "sku", "ALTER TABLE products ADD COLUMN sku TEXT")
+        add_col("products", "price", "ALTER TABLE products ADD COLUMN price REAL DEFAULT 0")
+        add_col("products", "stock", "ALTER TABLE products ADD COLUMN stock INTEGER DEFAULT 0")
+        add_col("products", "category_id", "ALTER TABLE products ADD COLUMN category_id INTEGER")
+        add_col("products", "supplier_id", "ALTER TABLE products ADD COLUMN supplier_id INTEGER")
+
+        # orders - these columns have DEFAULT expressions, so we use placeholder defaults
+        add_col("orders", "client_id", "ALTER TABLE orders ADD COLUMN client_id INTEGER")
+        add_col("orders", "date", "ALTER TABLE orders ADD COLUMN date TEXT")
+        add_col("orders", "status", "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'новый'")
+        add_col("orders", "total", "ALTER TABLE orders ADD COLUMN total REAL DEFAULT 0")
+
+        # order_items
+        add_col("order_items", "order_id", "ALTER TABLE order_items ADD COLUMN order_id INTEGER")
+        add_col("order_items", "product_id", "ALTER TABLE order_items ADD COLUMN product_id INTEGER")
+        add_col("order_items", "qty", "ALTER TABLE order_items ADD COLUMN qty INTEGER DEFAULT 1")
+        add_col("order_items", "price", "ALTER TABLE order_items ADD COLUMN price REAL DEFAULT 0")
 
     # ------------------------------------------------------------------
     # Generic helpers
