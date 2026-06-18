@@ -1,30 +1,51 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget
 from database import Database
-from ui_tabs import ProductsTab, OrdersTab, ClientsTab, SuppliersTab, CategoriesTab
+from ui_tabs import (
+    ProductsTab,
+    OrdersTab,
+    ClientsTab,
+    SuppliersTab,
+    CategoriesTab,
+)
+
+
+APP_TITLE = "ПракрикаП — Оптовая торговля"
+DB_PATH = "trade_store.db"
 
 
 class MainWindow(QMainWindow):
-  def __init__(self):
-    super().__init__()
-    self.setWindowTitle("ПракрикаП — Оптовая торговля")
-    self.resize(1000, 650)
-    self.db = Database("trade_store.db")
-    tabs = QTabWidget()
-    tabs.addTab(ProductsTab(self.db), "Товары")
-    tabs.addTab(OrdersTab(self.db), "Заказы")
-    tabs.addTab(ClientsTab(self.db), "Клиенты")
-    tabs.addTab(SuppliersTab(self.db), "Поставщики")
-    tabs.addTab(CategoriesTab(self.db), "Категории")
-    self.setCentralWidget(tabs)
+    """Main application window with tabbed interface."""
 
-  def closeEvent(self, event):
-    self.db.close()
-    event.accept()
+    def __init__(self, db: Database):
+        super().__init__()
+        self.db = db
+        self.setWindowTitle(APP_TITLE)
+        self.resize(1100, 700)
+
+        # Central QTabWidget
+        tabs = QTabWidget()
+        self.setCentralWidget(tabs)
+
+        # Add tabs — each receives the same shared Database instance
+        tabs.addTab(ProductsTab(db), "Товары")
+        tabs.addTab(OrdersTab(db), "Заказы")
+        tabs.addTab(ClientsTab(db), "Клиенты")
+        tabs.addTab(SuppliersTab(db), "Поставщики")
+        tabs.addTab(CategoriesTab(db), "Категории")
+
+    def closeEvent(self, event):
+        self.db.close()
+        event.accept()
+
+
+def main():
+    app = QApplication(sys.argv)
+    db = Database(DB_PATH)
+    w = MainWindow(db)
+    w.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
-  app = QApplication(sys.argv)
-  w = MainWindow()
-  w.show()
-  sys.exit(app.exec())
+    main()
