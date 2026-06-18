@@ -34,8 +34,7 @@ class BaseTab(QWidget):
         layout.addWidget(self._build_table())
     
     def _build_top_bar(self):
-                bar_widget = QWidget(); bar = QHBoxLayout(bar_widget)
-    
+        bar_widget = QWidget(); bar = QHBoxLayout(bar_widget)
         btn_add = QPushButton(f"Добавить {self.prefix}")
         btn_add.clicked.connect(self.add)
         bar.addWidget(btn_add)
