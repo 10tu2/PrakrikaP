@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
         self.order_table.setHorizontalHeaderLabels(headers)
         self.order_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.order_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.order_table.doubleClicked.connect(selected=self.open_order_dialog)
+        self.order_table.doubleClicked.connect(self.open_order_dialog)
         layout.addWidget(self.order_table)
 
         btn_row = QHBoxLayout()
