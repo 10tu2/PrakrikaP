@@ -92,12 +92,11 @@ class Database:
 
     def recalc_total(self, order_id):
         res = self.fetchone("""SELECT COALESCE(SUM(quantity * price), 0) as total
-            FROM order_items WHERE order_id = ?""", (order_id,))
+                               FROM order_items WHERE order_id = ?""", (order_id,))
         self.execute("UPDATE orders SET total = ? WHERE order_id = ?", (res['total'], order_id))
 
     def close(self):
         self.conn.close()
-
 
 class MainWindow(QMainWindow):
     def __init__(self, db):
@@ -119,59 +118,9 @@ class MainWindow(QMainWindow):
         if hasattr(tab, 'refresh'):
             tab.refresh()
 
-    def products_tab(self):
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        bar = QHBoxLayout()
-        self.prod_search = QLineEdit()
-        self.prod_search.setPlaceholderText("Поиск по названию или SKU...")
-        self.prod_search.textChanged.connect(self.refresh_products)
-        bar.addWidget(self.prod_search)
-        self.prod_category = QComboBox()
-        self.prod_category.addItem("Все категории", 0)
-        self.refresh_categories()
-        self.prod_category.currentIndexChanged.connect(self.refresh_products)
-        bar.addWidget(self.prod_category)
-        layout.addLayout(bar)
-        btn_bar = QHBoxLayout()
-        btn_add = QPushButton("Добавить")
-        btn_add.clicked.connect(lambda: self.open_product_dialog())
-        btn_bar.addWidget(btn_add)
-        btn_import = QPushButton("Импорт CSV")
-        btn_import.clicked.connect(self.import_products)
-        btn_bar.addWidget(btn_import)
-        btn_export = QPushButton("Экспорт CSV")
-        btn_export.clicked.connect(self.export_products)
-        btn_bar.addWidget(btn_export)
-        layout.addLayout(btn_bar)
-        self.prod_table = QTableWidget()
-        self.prod_table.setColumnCount(8)
-        self.prod_table.setHorizontalHeaderLabels(["ID", "Название", "SKU", "Категория", "Цена", "Остаток", "Мин. остаток", "Ед."])
-        self.prod_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.prod_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.prod_table.doubleClicked.connect(self.edit_product)
-        layout.addWidget(self.prod_table)
-        crud_bar = QHBoxLayout()
-        btn_view = QPushButton("Просмотр")
-        btn_view.clicked.connect(self.view_product)
-        crud_bar.addWidget(btn_view)
-        btn_edit = QPushButton("Редактировать")
-        btn_edit.clicked.connect(self.edit_product)
-        crud_bar.addWidget(btn_edit)
-        btn_del = QPushButton("Удалить")
-        btn_del.clicked.connect(self.delete_product)
-        crud_bar.addWidget(btn_del)
-        btn_stock = QPushButton("Движение товара")
-        btn_stock.clicked.connect(self.stock_movement)
-        crud_bar.addWidget(btn_stock)
-        btn_cat = QPushButton("Категории")
-        btn_cat.clicked.connect(self.manage_categories)
-        crud_bar.addWidget(btn_cat)
-        layout.addLayout(crud_bar)
-        self.refresh_categories()
-        self.refresh_products()
-        return w
-
+    def get_selected_row(self, table):
+        rows = table.selectedItems()
+        return int(table.item(rows[0].row(), 0).text()) if rows else None
 
     def refresh_categories(self):
         self.prod_category.clear()
@@ -184,8 +133,7 @@ class MainWindow(QMainWindow):
         search = self.prod_search.text().strip()
         cat_id = self.prod_category.currentData()
         sql = """SELECT p.product_id, p.name, p.sku, c.name, p.price, p.stock, p.min_stock, p.unit
-            FROM products p LEFT JOIN categories c ON p.category_id = c.category_id
-            WHERE 1=1"""
+                 FROM products p LEFT JOIN categories c ON p.category_id = c.category_id WHERE 1=1"""
         params = []
         if search:
             sql += " AND (p.name LIKE ? OR p.sku LIKE ?)"
@@ -224,10 +172,59 @@ class MainWindow(QMainWindow):
         for row in self.db.fetchall("SELECT product_id, name, price FROM products ORDER BY name"):
             combo.addItem(f"{row['name']} ({row['price']})", row['product_id'])
 
-    def get_selected_row(self, table):
-        rows = table.selectedItems()
-        return int(table.item(rows[0].row(), 0).text()) if rows else None
+    def refresh_orders(self):
+        self.order_table.setRowCount(0)
+        cust = self.order_customer.currentData()
+        sql = """SELECT o.order_id, c.name, o.order_date, o.status, o.total
+                 FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id"""
+        params = []
+        if cust:
+            sql += " WHERE o.customer_id = ?"
+            params.append(cust)
+        sql += " ORDER BY o.order_date DESC"
+        for row in self.db.fetchall(sql, params):
+            r = self.order_table.rowCount()
+            self.order_table.insertRow(r)
+            for c, val in enumerate(row):
+                self.order_table.setItem(r, c, QTableWidgetItem(str(val if val else '')))
 
+    def refresh_customers(self):
+        self.cust_table.setRowCount(0)
+        search = self.cust_search.text().strip()
+        sql = "SELECT customer_id, name, phone, email, address FROM customers"
+        params = []
+        if search:
+            sql += " WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?"
+            params = ['%' + search + '%'] * 3
+        sql += " ORDER BY name"
+        for row in self.db.fetchall(sql, params):
+            r = self.cust_table.rowCount()
+            self.cust_table.insertRow(r)
+            for c, val in enumerate(row):
+                self.cust_table.setItem(r, c, QTableWidgetItem(str(val if val is not None else '')))
+
+    def refresh_suppliers(self):
+        self.sup_table.setRowCount(0)
+        search = self.sup_search.text().strip()
+        sql = "SELECT supplier_id, name, phone, email, address FROM suppliers"
+        params = []
+        if search:
+            sql += " WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?"
+            params = ['%' + search + '%'] * 3
+        sql += " ORDER BY name"
+        for row in self.db.fetchall(sql, params):
+            r = self.sup_table.rowCount()
+            self.sup_table.insertRow(r)
+            for c, val in enumerate(row):
+                self.sup_table.setItem(r, c, QTableWidgetItem(str(val if val is not None else '')))
+
+    def _refresh_categories_table(self, table):
+        table.setRowCount(0)
+        for row in self.db.fetchall("SELECT category_id, name FROM categories ORDER BY name"):
+            r = table.rowCount()
+            table.insertRow(r)
+            table.setItem(r, 0, QTableWidgetItem(str(row['category_id'])))
+            table.setItem(r, 1, QTableWidgetItem(row['name']))
 
     def open_product_dialog(self, product_id=None):
         dlg = QDialog(self)
@@ -288,16 +285,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", "Некорректные числовые данные")
                 return
             if product_id:
-                self.db.execute("""UPDATE products SET name=?, sku=?, category_id=?, supplier_id=?,
-                    unit=?, price=?, stock=?, min_stock=?, description=? WHERE product_id=?""",
-                    (name.text(), sku.text(), cat.currentData(), sup.currentData(),
-                     unit.text(), p, s, ms, desc.toPlainText(), product_id))
+                self.db.execute("""UPDATE products SET name=?, sku=?, category_id=?, supplier_id=?, unit=?, price=?, stock=?, min_stock=?, description=? WHERE product_id=?""",
+                                (name.text(), sku.text(), cat.currentData(), sup.currentData(), unit.text(), p, s, ms, desc.toPlainText(), product_id))
                 QMessageBox.information(self, "Успех", "Товар обновлён")
             else:
-                self.db.execute("""INSERT INTO products (name, sku, category_id, supplier_id,
-                    unit, price, stock, min_stock, description) VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (name.text(), sku.text(), cat.currentData(), sup.currentData(),
-                     unit.text(), p, s, ms, desc.toPlainText()))
+                self.db.execute("""INSERT INTO products (name, sku, category_id, supplier_id, unit, price, stock, min_stock, description) VALUES (?,?,?,?,?,?,?,?,?)""",
+                                (name.text(), sku.text(), cat.currentData(), sup.currentData(), unit.text(), p, s, ms, desc.toPlainText()))
                 QMessageBox.information(self, "Успех", "Товар добавлен")
             self.refresh_products()
 
@@ -311,22 +304,13 @@ class MainWindow(QMainWindow):
             info = f"ID: {row['product_id']}\nНазвание: {row['name']}\nSKU: {row['sku']}\nЕд.: {row['unit']}\nЦена: {row['price']}\nОстаток: {row['stock']}\nМин. остаток: {row['min_stock']}\nОписание: {row['description']}"
             QMessageBox.information(self, f"Товар {row['name']}", info)
 
-
-    def edit_product(self):
-        pid = self.get_selected_row(self.prod_table)
-        if not pid:
-            QMessageBox.warning(self, "Ошибка", "Выберите товар")
-            return
-        self.open_product_dialog(pid)
-
     def delete_product(self):
         pid = self.get_selected_row(self.prod_table)
         if not pid:
             QMessageBox.warning(self, "Ошибка", "Выберите товар")
             return
         row = self.db.fetchone("SELECT name FROM products WHERE product_id = ?", (pid,))
-        if not row:
-            return
+        if not row: return
         if QMessageBox.question(self, "Подтверждение", f"Удалить '{row['name']}'?") == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM products WHERE product_id = ?", (pid,))
             self.refresh_products()
@@ -338,8 +322,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Выберите товар")
             return
         row = self.db.fetchone("SELECT name, stock FROM products WHERE product_id = ?", (pid,))
-        if not row:
-            return
+        if not row: return
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Движение: {row['name']}")
         layout = QVBoxLayout(dlg)
@@ -376,8 +359,7 @@ class MainWindow(QMainWindow):
 
     def import_products(self):
         path, _ = QFileDialog.getOpenFileName(self, "Импорт CSV", "", "CSV Files (*.csv)")
-        if not path:
-            return
+        if not path: return
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
@@ -388,70 +370,28 @@ class MainWindow(QMainWindow):
                     sup_name = row.get('supplier', 'Общий поставщик')
                     sup = self.db.fetchone("SELECT supplier_id FROM suppliers WHERE name = ?", (sup_name,))
                     sup_id = sup['supplier_id'] if sup else None
-                    self.db.execute("""INSERT OR IGNORE INTO products (name, sku, category_id, supplier_id,
-                        unit, price, stock, min_stock, description) VALUES (?,?,?,?,?,?,?,?,?)""",
-                        (row.get('name', ''), row.get('sku', ''), cat_id, sup_id,
-                         row.get('unit', 'шт'), float(row.get('price', 0)),
-                         int(row.get('stock', 0)), int(row.get('min_stock', 0)), row.get('description', '')))
-            self.refresh_products()
-            QMessageBox.information(self, "Успех", "Импорт завершён")
+                    self.db.execute("""INSERT OR IGNORE INTO products (name, sku, category_id, supplier_id, unit, price, stock, min_stock, description)
+                                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                                    (row.get('name', ''), row.get('sku', ''), cat_id, sup_id, row.get('unit', 'шт'),
+                                     float(row.get('price', 0)), int(row.get('stock', 0)), int(row.get('min_stock', 0)), row.get('description', '')))
+                self.refresh_products()
+                QMessageBox.information(self, "Успех", "Импорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def export_products(self):
         path, _ = QFileDialog.getSaveFileName(self, "Экспорт CSV", "products.csv", "CSV Files (*.csv)")
-        if not path:
-            return
+        if not path: return
         try:
             with open(path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(['ID', 'Название', 'SKU', 'Категория', 'Поставщик', 'Ед.', 'Цена', 'Остаток', 'Мин. остаток', 'Описание'])
-                for row in self.db.fetchall("""SELECT p.product_id, p.name, p.sku, c.name as cat, s.name as sup,
-                    p.unit, p.price, p.stock, p.min_stock, p.description
-                    FROM products p LEFT JOIN categories c ON p.category_id = c.category_id
-                    LEFT JOIN suppliers s ON p.supplier_id = s.supplier_id"""):
-                    writer.writerow([row['product_id'], row['name'], row['sku'], row['cat'], row['sup'],
-                        row['unit'], row['price'], row['stock'], row['min_stock'], row['description']])
-            QMessageBox.information(self, "Успех", "Экспорт завершён")
+                for row in self.db.fetchall("""SELECT p.product_id, p.name, p.sku, c.name as cat, s.name as sup, p.unit, p.price, p.stock, p.min_stock, p.description
+                                               FROM products p LEFT JOIN categories c ON p.category_id = c.category_id LEFT JOIN suppliers s ON p.supplier_id = s.supplier_id"""):
+                    writer.writerow([row['product_id'], row['name'], row['sku'], row['cat'], row['sup'], row['unit'], row['price'], row['stock'], row['min_stock'], row['description']])
+                QMessageBox.information(self, "Успех", "Экспорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
-
-
-    def manage_categories(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Категории")
-        layout = QVBoxLayout(dlg)
-        bar = QHBoxLayout()
-        name = QLineEdit()
-        bar.addWidget(name)
-        btn_add = QPushButton("Добавить")
-        btn_add.clicked.connect(lambda: self._add_category(name.text(), name))
-        bar.addWidget(btn_add)
-        layout.addLayout(bar)
-        table = QTableWidget()
-        table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["ID", "Название"])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(table)
-        btns = QHBoxLayout()
-        btn_del = QPushButton("Удалить")
-        btn_del.clicked.connect(lambda: self._del_category(table))
-        btns.addWidget(btn_del)
-        btn_close = QPushButton("Закрыть")
-        btn_close.clicked.connect(dlg.accept)
-        btns.addWidget(btn_close)
-        layout.addLayout(btns)
-        self._refresh_categories_table(table)
-        dlg.exec()
-
-    def _refresh_categories_table(self, table):
-        table.setRowCount(0)
-        for row in self.db.fetchall("SELECT category_id, name FROM categories ORDER BY name"):
-            r = table.rowCount()
-            table.insertRow(r)
-            table.setItem(r, 0, QTableWidgetItem(str(row['category_id'])))
-            table.setItem(r, 1, QTableWidgetItem(row['name']))
 
     def _add_category(self, name, field):
         if not name.strip():
@@ -482,55 +422,92 @@ class MainWindow(QMainWindow):
             self.refresh_categories()
             QMessageBox.information(self, "Успех", "Категория удалена")
 
+    def manage_categories(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Категории")
+        layout = QVBoxLayout(dlg)
+        bar = QHBoxLayout()
+        name = QLineEdit()
+        bar.addWidget(name)
+        btn_add = QPushButton("Добавить")
+        btn_add.clicked.connect(lambda: self._add_category(name.text(), name))
+        bar.addWidget(btn_add)
+        layout.addLayout(bar)
+        table = QTableWidget()
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["ID", "Название"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(table)
+        btns = QHBoxLayout()
+        btn_del = QPushButton("Удалить")
+        btn_del.clicked.connect(lambda: self._del_category(table))
+        btns.addWidget(btn_del)
+        btn_close = QPushButton("Закрыть")
+        btn_close.clicked.connect(dlg.accept)
+        btns.addWidget(btn_close)
+        layout.addLayout(btns)
+        self._refresh_categories_table(table)
+        dlg.exec()
 
-    def orders_tab(self):
+    def products_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        # ALL buttons on TOP
         bar = QHBoxLayout()
-        bar.addWidget(QLabel("Клиент:"))
-        self.order_customer = QComboBox()
-        self.refresh_customers_combo(self.order_customer)
-        bar.addWidget(self.order_customer)
-        btn_new = QPushButton("Новый заказ")
-        btn_new.clicked.connect(lambda: self.open_order_dialog())
-        bar.addWidget(btn_new)
+        self.prod_search = QLineEdit()
+        self.prod_search.setPlaceholderText("Поиск по названию или SKU...")
+        self.prod_search.textChanged.connect(self.refresh_products)
+        bar.addWidget(self.prod_search)
+        self.prod_category = QComboBox()
+        self.prod_category.addItem("Все категории", 0)
+        self.refresh_categories()
+        self.prod_category.currentIndexChanged.connect(self.refresh_products)
+        bar.addWidget(self.prod_category)
+        btn_add = QPushButton("Добавить")
+        btn_add.clicked.connect(lambda: self.open_product_dialog())
+        bar.addWidget(btn_add)
+        btn_view = QPushButton("Просмотр")
+        btn_view.clicked.connect(self.view_product)
+        bar.addWidget(btn_view)
+        btn_edit = QPushButton("Редактировать")
+        btn_edit.clicked.connect(self.edit_product)
+        bar.addWidget(btn_edit)
+        btn_del = QPushButton("Удалить")
+        btn_del.clicked.connect(self.delete_product)
+        bar.addWidget(btn_del)
+        btn_stock = QPushButton("Движение товара")
+        btn_stock.clicked.connect(self.stock_movement)
+        bar.addWidget(btn_stock)
+        btn_cat = QPushButton("Категории")
+        btn_cat.clicked.connect(self.manage_categories)
+        bar.addWidget(btn_cat)
+        btn_import = QPushButton("Импорт CSV")
+        btn_import.clicked.connect(self.import_products)
+        bar.addWidget(btn_import)
         btn_export = QPushButton("Экспорт CSV")
-        btn_export.clicked.connect(self.export_orders)
+        btn_export.clicked.connect(self.export_products)
         bar.addWidget(btn_export)
         layout.addLayout(bar)
-        self.order_table = QTableWidget()
-        self.order_table.setColumnCount(5)
-        self.order_table.setHorizontalHeaderLabels(["ID", "Клиент", "Дата", "Статус", "Сумма"])
-        self.order_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.order_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.order_table.doubleClicked.connect(self.open_order_dialog)
-        layout.addWidget(self.order_table)
-        crud_bar = QHBoxLayout()
-        btn_view = QPushButton("Просмотр")
-        btn_view.clicked.connect(self.view_order)
-        crud_bar.addWidget(btn_view)
-        btn_del = QPushButton("Удалить")
-        btn_del.clicked.connect(self.delete_order)
-        crud_bar.addWidget(btn_del)
-        layout.addLayout(crud_bar)
-        self.refresh_orders()
+        # Table
+        self.prod_table = QTableWidget()
+        self.prod_table.setColumnCount(8)
+        self.prod_table.setHorizontalHeaderLabels(["ID", "Название", "SKU", "Категория", "Цена", "Остаток", "Мин. остаток", "Ед."])
+        self.prod_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.prod_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        # double-click to edit
+        self.prod_table.doubleClicked.connect(self.edit_product)
+        layout.addWidget(self.prod_table)
+        self.refresh_categories()
+        self.refresh_products()
         return w
 
-    def refresh_orders(self):
-        self.order_table.setRowCount(0)
-        cust = self.order_customer.currentData()
-        sql = """SELECT o.order_id, c.name, o.order_date, o.status, o.total
-            FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id"""
-        params = []
-        if cust:
-            sql += " WHERE o.customer_id = ?"
-            params.append(cust)
-        sql += " ORDER BY o.order_date DESC"
-        for row in self.db.fetchall(sql, params):
-            r = self.order_table.rowCount()
-            self.order_table.insertRow(r)
-            for c, val in enumerate(row):
-                self.order_table.setItem(r, c, QTableWidgetItem(str(val if val else '')))
+    def edit_product(self):
+        pid = self.get_selected_row(self.prod_table)
+        if not pid:
+            QMessageBox.warning(self, "Ошибка", "Выберите товар")
+            return
+        self.open_product_dialog(pid)
 
     def open_order_dialog(self, order_id=None):
         dlg = QDialog(self)
@@ -578,20 +555,16 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", "Выберите клиента")
                 return
             if order_id:
-                self.db.execute("""UPDATE orders SET customer_id=?, order_date=?, status=?, notes=?
-                    WHERE order_id=?""", (cust_id, date.date().toString('yyyy-MM-dd'),
-                    status.currentData(), notes.toPlainText(), order_id))
+                self.db.execute("""UPDATE orders SET customer_id=?, order_date=?, status=?, notes=? WHERE order_id=?""",
+                                (cust_id, date.date().toString('yyyy-MM-dd'), status.currentData(), notes.toPlainText(), order_id))
                 QMessageBox.information(self, "Успех", "Заказ обновлён")
             else:
-                cur = self.db.execute("""INSERT INTO orders (customer_id, order_date, status, notes)
-                    VALUES (?,?,?,?)""", (cust_id, date.date().toString('yyyy-MM-dd'),
-                    status.currentData(), notes.toPlainText()))
+                cur = self.db.execute("""INSERT INTO orders (customer_id, order_date, status, notes) VALUES (?,?,?,?)""",
+                                      (cust_id, date.date().toString('yyyy-MM-dd'), status.currentData(), notes.toPlainText()))
                 order_id = cur.lastrowid
                 QMessageBox.information(self, "Успех", "Заказ создан")
             self.refresh_orders()
-            if order_id:
-                self.edit_order_items(order_id, dlg)
-
+            if order_id: self.edit_order_items(order_id, dlg)
 
     def edit_order_items(self, order_id, parent_dlg):
         dlg = QDialog(parent_dlg)
@@ -628,8 +601,8 @@ class MainWindow(QMainWindow):
     def _refresh_order_items(self, order_id, table):
         table.setRowCount(0)
         for row in self.db.fetchall("""SELECT oi.item_id, p.name, oi.quantity, oi.price, oi.quantity * oi.price as subtotal
-            FROM order_items oi JOIN products p ON oi.product_id = p.product_id
-            WHERE oi.order_id = ?""", (order_id,)):
+                                       FROM order_items oi JOIN products p ON oi.product_id = p.product_id
+                                       WHERE oi.order_id = ?""", (order_id,)):
             r = table.rowCount()
             table.insertRow(r)
             table.setItem(r, 0, QTableWidgetItem(row['name']))
@@ -651,13 +624,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Некорректное количество")
             return
         row = self.db.fetchone("SELECT price, stock FROM products WHERE product_id = ?", (pid,))
-        if not row:
-            return
+        if not row: return
         if q > row['stock']:
             QMessageBox.warning(self, "Ошибка", "Недостаточно на складе")
             return
-        self.db.execute("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?,?,?,?)",
-            (order_id, pid, q, row['price']))
+        self.db.execute("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?,?,?,?)", (order_id, pid, q, row['price']))
         self._refresh_order_items(order_id, table)
         QMessageBox.information(self, "Успех", "Товар добавлен")
 
@@ -666,8 +637,7 @@ class MainWindow(QMainWindow):
         if not rows:
             QMessageBox.warning(self, "Ошибка", "Выберите товар")
             return
-        iid = self.db.fetchone("SELECT item_id FROM order_items WHERE order_id = ? LIMIT 1 OFFSET ?",
-            (order_id, rows[0].row()))
+        iid = self.db.fetchone("SELECT item_id FROM order_items WHERE order_id = ? LIMIT 1 OFFSET ?", (order_id, rows[0].row()))
         if iid:
             self.db.execute("DELETE FROM order_items WHERE item_id = ?", (iid['item_id'],))
             self._refresh_order_items(order_id, table)
@@ -682,11 +652,12 @@ class MainWindow(QMainWindow):
         if row:
             info = f"ID: {row['order_id']}\nКлиент: {row['name']}\nДата: {row['order_date']}\nСтатус: {row['status']}\nСумма: {row['total']:.2f}\nЗаметки: {row['notes']}"
             items = self.db.fetchall("""SELECT p.name, oi.quantity, oi.price, oi.quantity * oi.price as subtotal
-                FROM order_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?""", (oid,))
+                                        FROM order_items oi JOIN products p ON oi.product_id = p.product_id
+                                        WHERE oi.order_id = ?""", (oid,))
             if items:
                 info += "\n\nТовары:\n"
                 for i in items:
-                    info += f"  {i['name']} x{i['quantity']} = {i['subtotal']:.2f}\n"
+                    info += f" {i['name']} x{i['quantity']} = {i['subtotal']:.2f}\n"
             QMessageBox.information(self, f"Заказ #{oid}", info)
 
     def delete_order(self):
@@ -701,108 +672,143 @@ class MainWindow(QMainWindow):
 
     def export_orders(self):
         path, _ = QFileDialog.getSaveFileName(self, "Экспорт CSV", "orders.csv", "CSV Files (*.csv)")
-        if not path:
-            return
+        if not path: return
         try:
             with open(path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(['ID', 'Клиент', 'Дата', 'Статус', 'Сумма'])
                 for row in self.db.fetchall("""SELECT o.order_id, c.name, o.order_date, o.status, o.total
-                    FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id ORDER BY o.order_date DESC"""):
+                                               FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id ORDER BY o.order_date DESC"""):
                     writer.writerow([row['order_id'], row['name'], row['order_date'], row['status'], row['total']])
-            QMessageBox.information(self, "Успех", "Экспорт завершён")
+                QMessageBox.information(self, "Успех", "Экспорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
+    def orders_tab(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        # ALL buttons on TOP
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel("Клиент:"))
+        self.order_customer = QComboBox()
+        self.refresh_customers_combo(self.order_customer)
+        bar.addWidget(self.order_customer)
+        btn_new = QPushButton("Новый заказ")
+        btn_new.clicked.connect(lambda: self.open_order_dialog())
+        bar.addWidget(btn_new)
+        btn_view = QPushButton("Просмотр")
+        btn_view.clicked.connect(self.view_order)
+        bar.addWidget(btn_view)
+        btn_del = QPushButton("Удалить")
+        btn_del.clicked.connect(self.delete_order)
+        bar.addWidget(btn_del)
+        btn_export = QPushButton("Экспорт CSV")
+        btn_export.clicked.connect(self.export_orders)
+        bar.addWidget(btn_export)
+        layout.addLayout(bar)
+        self.order_table = QTableWidget()
+        self.order_table.setColumnCount(5)
+        self.order_table.setHorizontalHeaderLabels(["ID", "Клиент", "Дата", "Статус", "Сумма"])
+        self.order_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.order_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.order_table.doubleClicked.connect(self.open_order_dialog)
+        layout.addWidget(self.order_table)
+        self.refresh_orders()
+        return w
 
     def customers_tab(self):
-        return self._entity_tab("customers", "customer_id", "customer_id", "Клиенты", "client", "name, phone, email, address")
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        # ALL buttons on TOP
+        bar = QHBoxLayout()
+        self.cust_search = QLineEdit()
+        self.cust_search.setPlaceholderText("Поиск...")
+        self.cust_search.textChanged.connect(self.refresh_customers)
+        bar.addWidget(self.cust_search)
+        btn_add = QPushButton("Добавить")
+        btn_add.clicked.connect(lambda: self._open_entity_dialog("customers", "customer_id", "client", None))
+        bar.addWidget(btn_add)
+        btn_edit = QPushButton("Редактировать")
+        btn_edit.clicked.connect(lambda: self._edit_entity("customers", "customer_id", "customer_id", self.cust_table, "client"))
+        bar.addWidget(btn_edit)
+        btn_del = QPushButton("Удалить")
+        btn_del.clicked.connect(lambda: self._del_entity("customers", "customer_id", "Клиенты", self.cust_table))
+        bar.addWidget(btn_del)
+        btn_export = QPushButton("Экспорт CSV")
+        btn_export.clicked.connect(lambda: self._export_entity("customers", "name, phone, email, address", "Клиенты"))
+        bar.addWidget(btn_export)
+        layout.addLayout(bar)
+        self.cust_table = QTableWidget()
+        self.cust_table.setColumnCount(5)
+        self.cust_table.setHorizontalHeaderLabels(["ID", "Название", "Телефон", "Email", "Адрес"])
+        self.cust_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.cust_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.cust_table)
+        self.refresh_customers()
+        w.refresh = lambda: self.refresh_customers()
+        return w
 
     def suppliers_tab(self):
-        return self._entity_tab("suppliers", "supplier_id", "supplier_id", "Поставщики", "supplier", "name, phone, email, address")
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        # ALL buttons on TOP
+        bar = QHBoxLayout()
+        self.sup_search = QLineEdit()
+        self.sup_search.setPlaceholderText("Поиск...")
+        self.sup_search.textChanged.connect(self.refresh_suppliers)
+        bar.addWidget(self.sup_search)
+        btn_add = QPushButton("Добавить")
+        btn_add.clicked.connect(lambda: self._open_entity_dialog("suppliers", "supplier_id", "supplier", None))
+        bar.addWidget(btn_add)
+        btn_edit = QPushButton("Редактировать")
+        btn_edit.clicked.connect(lambda: self._edit_entity("suppliers", "supplier_id", "supplier_id", self.sup_table, "supplier"))
+        bar.addWidget(btn_edit)
+        btn_del = QPushButton("Удалить")
+        btn_del.clicked.connect(lambda: self._del_entity("suppliers", "supplier_id", "Поставщики", self.sup_table))
+        bar.addWidget(btn_del)
+        btn_export = QPushButton("Экспорт CSV")
+        btn_export.clicked.connect(lambda: self._export_entity("suppliers", "name, phone, email, address", "Поставщики"))
+        bar.addWidget(btn_export)
+        layout.addLayout(bar)
+        self.sup_table = QTableWidget()
+        self.sup_table.setColumnCount(5)
+        self.sup_table.setHorizontalHeaderLabels(["ID", "Название", "Телефон", "Email", "Адрес"])
+        self.sup_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.sup_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.sup_table)
+        self.refresh_suppliers()
+        w.refresh = lambda: self.refresh_suppliers()
+        return w
 
     def categories_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        # ALL buttons on TOP
         bar = QHBoxLayout()
-        name = QLineEdit()
-        bar.addWidget(name)
+        self.cat_name = QLineEdit()
+        self.cat_name.setPlaceholderText("Название категории...")
+        bar.addWidget(self.cat_name)
         btn_add = QPushButton("Добавить")
-        btn_add.clicked.connect(lambda: self._add_category(name.text(), name))
+        btn_add.clicked.connect(lambda: self._add_category(self.cat_name.text(), self.cat_name))
         bar.addWidget(btn_add)
-        layout.addLayout(bar)
-        table = QTableWidget()
-        table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["ID", "Название"])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(table)
-        crud_bar = QHBoxLayout()
         btn_del = QPushButton("Удалить")
-        btn_del.clicked.connect(lambda: self._del_category(table))
-        crud_bar.addWidget(btn_del)
-        layout.addLayout(crud_bar)
-        self._refresh_categories_table(table)
-        w.refresh = lambda: self._refresh_categories_table(table)
-        return w
-
-    def _entity_tab(self, table_name, pk_col, pk_name, title, prefix, columns):
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        bar = QHBoxLayout()
-        search = QLineEdit()
-        search.setPlaceholderText("Поиск...")
-        bar.addWidget(search)
-        btn_add = QPushButton("Добавить")
-        btn_add.clicked.connect(lambda: self._open_entity_dialog(table_name, pk_col, prefix, None))
-        bar.addWidget(btn_add)
-        btn_export = QPushButton("Экспорт CSV")
-        btn_export.clicked.connect(lambda: self._export_entity(table_name, columns, title))
-        bar.addWidget(btn_export)
+        btn_del.clicked.connect(lambda: self._del_category(self.cat_table))
+        bar.addWidget(btn_del)
         layout.addLayout(bar)
-        table = QTableWidget()
-        cols = columns.split(", ")
-        table.setColumnCount(len(cols) + 1)
-        headers = [pk_name.upper()] + [c.capitalize() for c in cols]
-        table.setHorizontalHeaderLabels(headers)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(table)
-        crud_bar = QHBoxLayout()
-        btn_edit = QPushButton("Редактировать")
-        btn_edit.clicked.connect(lambda: self._edit_entity(table_name, pk_col, pk_name, table, prefix, columns))
-        crud_bar.addWidget(btn_edit)
-        btn_del = QPushButton("Удалить")
-        btn_del.clicked.connect(lambda: self._del_entity(table_name, pk_col, pk_name, title, table))
-        crud_bar.addWidget(btn_del)
-        layout.addLayout(crud_bar)
-        def refresh():
-            search.text()
-        search.textChanged.connect(lambda: self._refresh_entity(table, table_name, pk_col, columns, search.text()))
-        self._refresh_entity(table, table_name, pk_col, columns, "")
-        w.refresh = lambda: self._refresh_entity(table, table_name, pk_col, columns, search.text())
+        self.cat_table = QTableWidget()
+        self.cat_table.setColumnCount(2)
+        self.cat_table.setHorizontalHeaderLabels(["ID", "Название"])
+        self.cat_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.cat_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.cat_table)
+        self._refresh_categories_table(self.cat_table)
+        w.refresh = lambda: self._refresh_categories_table(self.cat_table)
         return w
-
-    def _refresh_entity(self, table, table_name, pk_col, columns, search):
-        table.setRowCount(0)
-        col_list = columns.split(", ")
-        sql = f"SELECT {pk_col}, {columns} FROM {table_name}"
-        params = []
-        if search.strip():
-            conditions = " OR ".join([f"{c} LIKE ?" for c in col_list])
-            sql += f" WHERE {conditions}"
-            params = ['%' + search.strip() + '%'] * len(col_list)
-        sql += f" ORDER BY {col_list[0]}"
-        for row in self.db.fetchall(sql, params):
-            r = table.rowCount()
-            table.insertRow(r)
-            for c, val in enumerate(row):
-                table.setItem(r, c, QTableWidgetItem(str(val if val is not None else '')))
 
     def _open_entity_dialog(self, table_name, pk_col, prefix, pk_id):
         dlg = QDialog(self)
         is_edit = pk_id is not None
-        dlg.setWindowTitle(f"Редактировать" if is_edit else "Добавить")
+        dlg.setWindowTitle(f"Редактировать {prefix}" if is_edit else f"Добавить {prefix}")
         layout = QVBoxLayout(dlg)
         form = QFormLayout()
         fields = {}
@@ -839,14 +845,14 @@ class MainWindow(QMainWindow):
                 self.db.execute(f"INSERT INTO {table_name} ({', '.join(col_list)}) VALUES ({placeholders})", values)
                 QMessageBox.information(self, "Успех", f"Запись добавлена")
 
-    def _edit_entity(self, table_name, pk_col, pk_name, table, prefix, columns):
+    def _edit_entity(self, table_name, pk_col, pk_name, table, prefix):
         row = self.get_selected_row(table)
         if not row:
             QMessageBox.warning(self, "Ошибка", f"Выберите {prefix}")
             return
         self._open_entity_dialog(table_name, pk_col, prefix, row)
 
-    def _del_entity(self, table_name, pk_col, pk_name, title, table):
+    def _del_entity(self, table_name, pk_col, title, table):
         pid = self.get_selected_row(table)
         if not pid:
             QMessageBox.warning(self, "Ошибка", f"Выберите запись")
@@ -858,8 +864,7 @@ class MainWindow(QMainWindow):
 
     def _export_entity(self, table_name, columns, title):
         path, _ = QFileDialog.getSaveFileName(self, f"Экспорт {title}", f"{table_name}.csv", "CSV Files (*.csv)")
-        if not path:
-            return
+        if not path: return
         try:
             with open(path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
@@ -867,7 +872,7 @@ class MainWindow(QMainWindow):
                 writer.writerow([c.capitalize() for c in col_list])
                 for row in self.db.fetchall(f"SELECT {columns} FROM {table_name}"):
                     writer.writerow([row[c] for c in col_list])
-            QMessageBox.information(self, "Успех", "Экспорт завершён")
+                QMessageBox.information(self, "Успех", "Экспорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
