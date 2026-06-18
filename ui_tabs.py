@@ -34,7 +34,7 @@ class BaseTab(QWidget):
         layout.addWidget(self._build_table())
     
     def _build_top_bar(self):
-        bar = QHBoxLayout()
+                bar_widget = QWidget(); bar = QHBoxLayout(bar_widget)
         btn_add = QPushButton(f"Добавить {self.prefix}")
         btn_add.clicked.connect(self.add)
         bar.addWidget(btn_add)
@@ -54,7 +54,7 @@ class BaseTab(QWidget):
         btn_exp = QPushButton("Экспорт CSV")
         btn_exp.clicked.connect(self.export_csv)
         bar.addWidget(btn_exp)
-        return bar
+        return bar_widget
     
     def _build_table(self):
         table = QTableWidget()
