@@ -273,6 +273,7 @@ class SimpleInputDialog(QDialog):
         btns = QHBoxLayout()
         btn_ok = QPushButton("OK")
         btn_ok.clicked.connect(self.accept)
+        btns.addWidget(btn_ok)
         btn_cancel = QPushButton("Отмена")
         btn_cancel.clicked.connect(self.reject)
         btns.addWidget(btn_cancel)
