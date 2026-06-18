@@ -47,13 +47,13 @@ class Database:
                 sku TEXT,
                 price REAL NOT NULL DEFAULT 0,
                 stock INTEGER NOT NULL DEFAULT 0,
-                category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-                supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL
+                category_id INTEGER,
+                supplier_id INTEGER
             )""",
             """
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+                client_id INTEGER,
                 date TEXT NOT NULL DEFAULT (date('now')),
                 status TEXT NOT NULL DEFAULT 'новый',
                 total REAL NOT NULL DEFAULT 0
@@ -61,8 +61,8 @@ class Database:
             """
             CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-                product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+                order_id INTEGER NOT NULL,
+                product_id INTEGER,
                 qty INTEGER NOT NULL DEFAULT 1,
                 price REAL NOT NULL DEFAULT 0
             )""",
@@ -76,15 +76,28 @@ class Database:
     # ------------------------------------------------------------------
     def _migrate(self):
         """Add missing columns to existing tables."""
+        def has_column(table, col):
+            chk = self.conn.execute(
+                "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
+                (table, col)
+            ).fetchone()
+            return chk is not None
+
         migrations = [
-            ("ALTER TABLE products ADD COLUMN sku TEXT", "sku"),
+            ("products", "sku", "ALTER TABLE products ADD COLUMN sku TEXT"),
+            ("products", "price", "ALTER TABLE products ADD COLUMN price REAL NOT NULL DEFAULT 0"),
+            ("products", "stock", "ALTER TABLE products ADD COLUMN stock INTEGER NOT NULL DEFAULT 0"),
+            ("products", "category_id", "ALTER TABLE products ADD COLUMN category_id INTEGER"),
+            ("products", "supplier_id", "ALTER TABLE products ADD COLUMN supplier_id INTEGER"),
+            ("orders", "total", "ALTER TABLE orders ADD COLUMN total REAL NOT NULL DEFAULT 0"),
         ]
-        for sql, col in migrations:
-            try:
-                self.conn.execute(sql)
-                self.conn.commit()
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        for table, col, sql in migrations:
+            if not has_column(table, col):
+                try:
+                    self.conn.execute(sql)
+                    self.conn.commit()
+                except sqlite3.OperationalError:
+                    pass
 
     # ------------------------------------------------------------------
     # Generic helpers
