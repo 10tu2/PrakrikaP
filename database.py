@@ -14,34 +14,27 @@ class Database:
         self._create_tables()
         self._migrate()
 
-    # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
     def _create_tables(self):
         stmts = [
-            """
-            CREATE TABLE IF NOT EXISTS categories (
+            """CREATE TABLE IF NOT EXISTS categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE
             )""",
-            """
-            CREATE TABLE IF NOT EXISTS suppliers (
+            """CREATE TABLE IF NOT EXISTS suppliers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 contact TEXT,
                 phone TEXT,
                 address TEXT
             )""",
-            """
-            CREATE TABLE IF NOT EXISTS clients (
+            """CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 contact TEXT,
                 phone TEXT,
                 address TEXT
             )""",
-            """
-            CREATE TABLE IF NOT EXISTS products (
+            """CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 sku TEXT,
@@ -50,16 +43,14 @@ class Database:
                 category_id INTEGER,
                 supplier_id INTEGER
             )""",
-            """
-            CREATE TABLE IF NOT EXISTS orders (
+            """CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER,
                 date TEXT,
                 status TEXT DEFAULT 'новый',
                 total REAL DEFAULT 0
             )""",
-            """
-            CREATE TABLE IF NOT EXISTS order_items (
+            """CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_id INTEGER,
                 product_id INTEGER,
@@ -71,20 +62,13 @@ class Database:
             self.conn.execute(stmt)
         self.conn.commit()
 
-    # ------------------------------------------------------------------
-    # Migrations
-    # ------------------------------------------------------------------
     def _migrate(self):
-        """Add missing columns to existing tables. Handles DEFAULT expressions."""
         def has_column(table: str, col: str) -> bool:
-            (
-                c := self.
-conn.execute(
-                    "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
-                    (table, col)
-                ).fetchone()
-            ) is not None
-            return c
+            row = self.conn.execute(
+                "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
+                (table, col)
+            ).fetchone()
+            return row is not None
 
         def add_col(table: str, col: str, sql: str):
             if not has_column(table, col):
@@ -101,7 +85,7 @@ conn.execute(
         add_col("products", "category_id", "ALTER TABLE products ADD COLUMN category_id INTEGER")
         add_col("products", "supplier_id", "ALTER TABLE products ADD COLUMN supplier_id INTEGER")
 
-        # orders - these columns have DEFAULT expressions, so we use placeholder defaults
+        # orders
         add_col("orders", "client_id", "ALTER TABLE orders ADD COLUMN client_id INTEGER")
         add_col("orders", "date", "ALTER TABLE orders ADD COLUMN date TEXT")
         add_col("orders", "status", "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'новый'")
@@ -113,11 +97,17 @@ conn.execute(
         add_col("order_items", "qty", "ALTER TABLE order_items ADD COLUMN qty INTEGER DEFAULT 1")
         add_col("order_items", "price", "ALTER TABLE order_items ADD COLUMN price REAL DEFAULT 0")
 
-    # ------------------------------------------------------------------
-    # Generic helpers
-    # ------------------------------------------------------------------
+        # clients
+        add_col("clients", "contact", "ALTER TABLE clients ADD COLUMN contact TEXT")
+        add_col("clients", "phone", "ALTER TABLE clients ADD COLUMN phone TEXT")
+        add_col("clients", "address", "ALTER TABLE clients ADD COLUMN address TEXT")
+
+        # suppliers
+        add_col("suppliers", "contact", "ALTER TABLE suppliers ADD COLUMN contact TEXT")
+        add_col("suppliers", "phone", "ALTER TABLE suppliers ADD COLUMN phone TEXT")
+        add_col("suppliers", "address", "ALTER TABLE suppliers ADD COLUMN address TEXT")
+
     def execute(self, sql: str, params: tuple = ()) -> int:
-        """Execute a write statement; return lastrowid."""
         cur = self.conn.execute(sql, params)
         self.conn.commit()
         return cur.lastrowid
@@ -128,9 +118,6 @@ conn.execute(
     def fetchall(self, sql: str, params: tuple = ()):
         return self.conn.execute(sql, params).fetchall()
 
-    # ------------------------------------------------------------------
-    # Order helpers
-    # ------------------------------------------------------------------
     def update_order_status(self, oid: int, status: str):
         self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
 
@@ -169,8 +156,5 @@ conn.execute(
         )
         self.execute("UPDATE orders SET total=? WHERE id=?", (row["total"], order_id))
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
     def close(self):
         self.conn.close()
