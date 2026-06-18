@@ -1,8 +1,6 @@
 import sqlite3
 
-
 DB_FILE = "trade_store.db"
-
 
 class Database:
     """SQLite layer for wholesale hardware & plumbing trade app."""
@@ -14,59 +12,59 @@ class Database:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.commit()
         self._create_tables()
+        self._migrate()
 
     # ------------------------------------------------------------------
     # Schema
     # ------------------------------------------------------------------
-
     def _create_tables(self):
         stmts = [
             """
             CREATE TABLE IF NOT EXISTS categories (
-                id   INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT    NOT NULL UNIQUE
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
             )""",
             """
             CREATE TABLE IF NOT EXISTS suppliers (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                name    TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
                 contact TEXT,
-                phone   TEXT,
+                phone TEXT,
                 address TEXT
             )""",
             """
             CREATE TABLE IF NOT EXISTS clients (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                name    TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
                 contact TEXT,
-                phone   TEXT,
+                phone TEXT,
                 address TEXT
             )""",
             """
             CREATE TABLE IF NOT EXISTS products (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                sku         TEXT,
-                price       REAL NOT NULL DEFAULT 0,
-                stock       INTEGER NOT NULL DEFAULT 0,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sku TEXT,
+                price REAL NOT NULL DEFAULT 0,
+                stock INTEGER NOT NULL DEFAULT 0,
                 category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-                supplier_id INTEGER REFERENCES suppliers(id)  ON DELETE SET NULL
+                supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL
             )""",
             """
             CREATE TABLE IF NOT EXISTS orders (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
-                date      TEXT    NOT NULL DEFAULT (date('now')),
-                status    TEXT    NOT NULL DEFAULT 'новый',
-                total     REAL    NOT NULL DEFAULT 0
+                date TEXT NOT NULL DEFAULT (date('now')),
+                status TEXT NOT NULL DEFAULT 'новый',
+                total REAL NOT NULL DEFAULT 0
             )""",
             """
             CREATE TABLE IF NOT EXISTS order_items (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id   INTEGER NOT NULL REFERENCES orders(id)   ON DELETE CASCADE,
-                product_id INTEGER          REFERENCES products(id) ON DELETE SET NULL,
-                qty        INTEGER NOT NULL DEFAULT 1,
-                price      REAL    NOT NULL DEFAULT 0
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+                qty INTEGER NOT NULL DEFAULT 1,
+                price REAL NOT NULL DEFAULT 0
             )""",
         ]
         for stmt in stmts:
@@ -74,9 +72,23 @@ class Database:
         self.conn.commit()
 
     # ------------------------------------------------------------------
+    # Migrations
+    # ------------------------------------------------------------------
+    def _migrate(self):
+        """Add missing columns to existing tables."""
+        migrations = [
+            ("ALTER TABLE products ADD COLUMN sku TEXT", "sku"),
+        ]
+        for sql, col in migrations:
+            try:
+                self.conn.execute(sql)
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
+    # ------------------------------------------------------------------
     # Generic helpers
     # ------------------------------------------------------------------
-
     def execute(self, sql: str, params: tuple = ()) -> int:
         """Execute a write statement; return lastrowid."""
         cur = self.conn.execute(sql, params)
@@ -92,7 +104,6 @@ class Database:
     # ------------------------------------------------------------------
     # Order helpers
     # ------------------------------------------------------------------
-
     def update_order_status(self, oid: int, status: str):
         self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
 
@@ -105,10 +116,10 @@ class Database:
                    COALESCE(p.name, '') AS product,
                    oi.qty,
                    oi.price,
-                   oi.qty * oi.price    AS subtotal
-            FROM   order_items oi
+                   oi.qty * oi.price AS subtotal
+            FROM order_items oi
             LEFT JOIN products p ON p.id = oi.product_id
-            WHERE  oi.order_id = ?
+            WHERE oi.order_id = ?
         """
         return self.fetchall(sql, (oid,))
 
@@ -134,6 +145,5 @@ class Database:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
-
     def close(self):
         self.conn.close()
