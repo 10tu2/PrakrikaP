@@ -11,6 +11,7 @@ from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtCore import Qt
 from dialogs import EntityDialog, OrderViewDialog, SimpleInputDialog
 
+
 class BaseTab(QWidget):
     """Base class for all tabs with unified top bar and common methods."""
 
@@ -32,7 +33,8 @@ class BaseTab(QWidget):
         layout.addWidget(self._build_table())
 
     def _build_top_bar(self):
-        bar_widget = QWidget(); bar = QHBoxLayout(bar_widget)
+        bar_widget = QWidget()
+        bar = QHBoxLayout(bar_widget)
         btn_add = QPushButton(f"Добавить {self.prefix}")
         btn_add.clicked.connect(self.add)
         bar.addWidget(btn_add)
@@ -56,8 +58,9 @@ class BaseTab(QWidget):
 
     def _build_table(self):
         table = QTableWidget()
-        table.setColumnCount(len(self.columns.split(", ")))
-        table.setHorizontalHeaderLabels([self.col_labels.get(c, c) for c in self.columns.split(", ")])
+        col_list = self.columns.split(", ")
+        table.setColumnCount(len(col_list))
+        table.setHorizontalHeaderLabels([self.col_labels.get(c, c) for c in col_list])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setAlternatingRowColors(True)
@@ -69,19 +72,32 @@ class BaseTab(QWidget):
         rows = self.table.selectedItems()
         return int(self.table.item(rows[0].row(), 0).text()) if rows else None
 
+    def _get_col_index(self, col_name):
+        """Get column index by column name to avoid hardcoded indices."""
+        col_list = self.columns.split(", ")
+        try:
+            return col_list.index(col_name)
+        except ValueError:
+            return -1
+
     def _open_entity_dialog(self, row_data=None):
-        dlg = EntityDialog(self.parent_win, self.db, self.table_name, self.columns, self.col_labels, self.pk_col, row_data)
+        dlg = EntityDialog(self.parent_win, self.db, self.table_name,
+                           self.columns, self.col_labels, self.pk_col, row_data)
         if dlg.exec() == EntityDialog.DialogCode.Accepted and dlg.save():
             self.refresh()
 
     def refresh(self):
-        rows = self.db.fetchall(f"SELECT {self.columns} FROM {self.table_name}")
+        try:
+            rows = self.db.fetchall(f"SELECT {self.columns} FROM {self.table_name}")
+        except Exception:
+            rows = []
         self.table.setRowCount(0)
         col_list = self.columns.split(", ")
         for r, row in enumerate(rows):
             self.table.insertRow(r)
             for c, col in enumerate(col_list):
-                item = QTableWidgetItem(str(row[col]) if row[col] is not None else "")
+                val = row[col] if row[col] is not None else ""
+                item = QTableWidgetItem(str(val))
                 self.table.setItem(r, c, item)
 
     def add(self):
@@ -92,14 +108,21 @@ class BaseTab(QWidget):
         if not pid:
             QMessageBox.warning(self, "Ошибка", f"Выберите {self.prefix}")
             return
-        row = self.db.fetchone(f"SELECT {self.columns} FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
+        try:
+            row = self.db.fetchone(f"SELECT {self.columns} FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
+        except Exception:
+            row = None
         if row:
-            dlg = EntityDialog(self.parent_win, self.db, self.table_name, self.columns, self.col_labels, self.pk_col, row)
+            dlg = EntityDialog(self.parent_win, self.db, self.table_name,
+                               self.columns, self.col_labels, self.pk_col, row)
             for field in dlg.fields.values():
                 field.setReadOnly(True)
             for btn in dlg.findChildren(QPushButton):
                 btn.setText("Закрыть" if btn.text() == "OK" else btn.text())
-                btn.clicked.disconnect()
+                try:
+                    btn.clicked.disconnect()
+                except Exception:
+                    pass
                 btn.clicked.connect(dlg.reject)
             dlg.setWindowTitle(f"Просмотр: {self.prefix}")
             dlg.exec()
@@ -109,7 +132,10 @@ class BaseTab(QWidget):
         if not pid:
             QMessageBox.warning(self, "Ошибка", f"Выберите {self.prefix}")
             return
-        row = self.db.fetchone(f"SELECT {self.columns} FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
+        try:
+            row = self.db.fetchone(f"SELECT {self.columns} FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
+        except Exception:
+            row = None
         if row:
             self._open_entity_dialog(row)
 
@@ -118,14 +144,19 @@ class BaseTab(QWidget):
         if not pid:
             QMessageBox.warning(self, "Ошибка", "Выберите запись")
             return
-        if QMessageBox.question(self, "Подтверждение", f"Удалить {self.prefix} #{pid}?") == QMessageBox.StandardButton.Yes:
-            self.db.execute(f"DELETE FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
-            self.table.model().layoutChanged.emit()
-            QMessageBox.information(self, "Успех", "Запись удалена")
+        if QMessageBox.question(self, "Подтверждение",
+                                f"Удалить {self.prefix} #{pid}?") == QMessageBox.StandardButton.Yes:
+            try:
+                self.db.execute(f"DELETE FROM {self.table_name} WHERE {self.pk_col} = ?", (pid,))
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
+                return
             self.refresh()
+            QMessageBox.information(self, "Успех", "Запись удалена")
 
     def import_csv(self):
-        path, _ = QFileDialog.getOpenFileName(self, f"Импорт {self.prefix}", "", "CSV Files (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(self, f"Импорт {self.prefix}",
+                                              "", "CSV Files (*.csv)")
         if not path:
             return
         try:
@@ -135,14 +166,16 @@ class BaseTab(QWidget):
                 for row in reader:
                     vals = [row.get(c.strip(), "") for c in col_list]
                     placeholders = ", ".join(["?" for _ in col_list])
-                    self.db.execute(f"INSERT OR IGNORE INTO {self.table_name} ({', '.join(col_list)}) VALUES ({placeholders})", vals)
-                QMessageBox.information(self, "Успех", "Импорт завершён")
-                self.refresh()
+                    self.db.execute(f"INSERT INTO {self.table_name} ({', '.join(col_list)}) VALUES ({placeholders})",
+                                    vals)
+            QMessageBox.information(self, "Успех", "Импорт завершён")
+            self.refresh()
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, f"Экспорт {self.prefix}", f"{self.table_name}.csv", "CSV Files (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, f"Экспорт {self.prefix}",
+                                              f"{self.table_name}.csv", "CSV Files (*.csv)")
         if not path:
             return
         try:
@@ -152,7 +185,7 @@ class BaseTab(QWidget):
                 writer.writerow([c.capitalize() for c in col_list])
                 for row in self.db.fetchall(f"SELECT {self.columns} FROM {self.table_name}"):
                     writer.writerow([row[c] for c in col_list])
-                QMessageBox.information(self, "Успех", "Экспорт завершён")
+            QMessageBox.information(self, "Успех", "Экспорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
@@ -161,23 +194,28 @@ class ProductsTab(BaseTab):
 
     def __init__(self, db, parent_win):
         super().__init__(db, "products",
-            "product_id, name, sku, category_id, supplier_id, unit, price, stock, min_stock, description",
-            {"product_id": "ID", "name": "Название", "sku": "Артикул", "category_id": "Категория",
-             "supplier_id": "Поставщик", "unit": "Ед.", "price": "Цена", "stock": "Остаток",
-             "min_stock": "Мин. остаток", "description": "Описание"},
-            "product_id", "товар", "товар", parent_win)
+                         "product_id, name, sku, category_id, supplier_id, unit, price, stock, min_stock, description",
+                         {"product_id": "ID", "name": "Название", "sku": "Артикул",
+                          "category_id": "Категория", "supplier_id": "Поставщик",
+                          "unit": "Ед.", "price": "Цена", "stock": "Остаток",
+                          "min_stock": "Мин. остаток", "description": "Описание"},
+                         "product_id", "товар", "товар", parent_win)
 
     def refresh(self):
         super().refresh()
         for r in range(self.table.rowCount()):
-            stock_item = self.table.item(r, 7)
-            min_item = self.table.item(r, 8)
-            if stock_item and min_item:
-                try:
-                    if int(stock_item.text()) <= int(min_item.text()):
-                        stock_item.setBackground(QBrush(QColor(255, 200, 200)))
-                except ValueError:
-                    pass
+            stock_col = self._get_col_index("stock")
+            min_stock_col = self._get_col_index("min_stock")
+            if stock_col >= 0 and min_stock_col >= 0:
+                stock_item = self.table.item(r, stock_col)
+                min_item = self.table.item(r, min_stock_col)
+                if stock_item and min_item:
+                    try:
+                        if int(stock_item.text()) <= int(min_item.text()):
+                            stock_item.setBackground(QBrush(QColor(255, 200, 200)))
+                    except ValueError:
+                        pass
+
 
 class OrdersTab(QWidget):
     """Orders tab with top bar and items management."""
@@ -186,12 +224,14 @@ class OrdersTab(QWidget):
         super().__init__()
         self.db = db
         self.parent_win = parent_win
+        self.current_order_id = None
         layout = QVBoxLayout(self)
         layout.addWidget(self._build_top_bar())
         layout.addWidget(self._build_splitter())
 
     def _build_top_bar(self):
-        bar_widget = QWidget(); bar = QHBoxLayout(bar_widget)
+        bar_widget = QWidget()
+        bar = QHBoxLayout(bar_widget)
         btn_add = QPushButton("Добавить заказ")
         btn_add.clicked.connect(self.add)
         bar.addWidget(btn_add)
@@ -204,9 +244,6 @@ class OrdersTab(QWidget):
         btn_del = QPushButton("Удалить заказ")
         btn_del.clicked.connect(self.delete)
         bar.addWidget(btn_del)
-        btn_items = QPushButton("Товары заказа")
-        btn_items.clicked.connect(self.edit_items)
-        bar.addWidget(btn_items)
         bar.addStretch()
         btn_imp = QPushButton("Импорт CSV")
         btn_imp.clicked.connect(self.import_csv)
@@ -218,23 +255,30 @@ class OrdersTab(QWidget):
 
     def _build_splitter(self):
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Левая часть — список заказов
         left = QWidget()
         left_layout = QVBoxLayout(left)
         self.orders_table = QTableWidget()
         self.orders_table.setColumnCount(6)
-        self.orders_table.setHorizontalHeaderLabels(["ID", "Клиент", "Дата", "Статус", "Сумма", "Заметки"])
-        self.orders_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.orders_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.orders_table.setHorizontalHeaderLabels(
+            ["ID", "Клиент", "Дата", "Статус", "Сумма", "Заметки"])
+        self.orders_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
+        self.orders_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows)
         self.orders_table.setAlternatingRowColors(True)
         self.orders_table.doubleClicked.connect(self.view)
+        self.orders_table.clicked.connect(self.on_order_selected)
         left_layout.addWidget(self.orders_table)
-
+        # Правая часть — товары заказа
         right = QWidget()
         right_layout = QVBoxLayout(right)
         self.items_table = QTableWidget()
         self.items_table.setColumnCount(4)
-        self.items_table.setHorizontalHeaderLabels(["ID", "Товар", "Кол-во", "Цена"])
-        self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.items_table.setHorizontalHeaderLabels(
+            ["ID", "Товар", "Кол-во", "Цена"])
+        self.items_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
         self.items_table.setAlternatingRowColors(True)
         items_bar = QHBoxLayout()
         btn_add_item = QPushButton("Добавить товар")
@@ -245,7 +289,6 @@ class OrdersTab(QWidget):
         items_bar.addWidget(btn_del_item)
         right_layout.addLayout(items_bar)
         right_layout.addWidget(self.items_table)
-
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setSizes([400, 300])
@@ -253,31 +296,70 @@ class OrdersTab(QWidget):
 
     def _get_selected_order_id(self):
         rows = self.orders_table.selectedItems()
-        return int(self.orders_table.item(rows[0].row(), 0).text()) if rows else None
+        if not rows:
+            return None
+        try:
+            return int(self.orders_table.item(rows[0].row(), 0).text())
+        except (ValueError, IndexError):
+            return None
+
+    def on_order_selected(self):
+        """Called when order is clicked — refresh items table."""
+        self.refresh_items()
 
     def refresh(self):
-        rows = self.db.fetchall("SELECT o.order_id, c.name as customer, o.order_date, o.status, o.total, o.notes FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id ORDER BY o.order_id DESC")
+        try:
+            rows = self.db.fetchall(
+                "SELECT o.order_id, c.name as customer, o.order_date, "
+                "o.status, o.total, o.notes FROM orders o "
+                "LEFT JOIN customers c ON o.customer_id = c.customer_id "
+                "ORDER BY o.order_id DESC")
+        except Exception:
+            rows = []
         self.orders_table.setRowCount(0)
         for r, row in enumerate(rows):
             self.orders_table.insertRow(r)
-            for c, val in enumerate([row["order_id"], row["customer"], row["order_date"], row["status"], str(row["total"]), row["notes"]]):
-                self.orders_table.setItem(r, c, QTableWidgetItem(str(val) if val else ""))
+            for c, val in enumerate([
+                row["order_id"], row["customer"],
+                row["order_date"], row["status"],
+                str(row["total"]) if row["total"] else "0",
+                row["notes"]
+            ]):
+                self.orders_table.setItem(r, c,
+                                          QTableWidgetItem(str(val) if val else ""))
         self.refresh_items()
 
     def refresh_items(self):
-        oid = self._get_selected_order_id()
         self.items_table.setRowCount(0)
+        oid = self._get_selected_order_id()
+        self.current_order_id = oid
         if oid:
-            rows = self.db.fetchall("SELECT oi.item_id, p.name, oi.quantity, oi.price FROM order_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?", (oid,))
+            try:
+                rows = self.db.fetchall(
+                    "SELECT oi.item_id, p.name, oi.quantity, oi.price "
+                    "FROM order_items oi "
+                    "JOIN products p ON oi.product_id = p.product_id "
+                    "WHERE oi.order_id = ?", (oid,))
+            except Exception:
+                rows = []
             for r, row in enumerate(rows):
                 self.items_table.insertRow(r)
-                for c, val in enumerate([row["item_id"], row["name"], row["quantity"], str(row["price"])]):
+                for c, val in enumerate([
+                    row["item_id"], row["name"],
+                    row["quantity"], str(row["price"]) if row["price"] else "0"
+                ]):
                     self.items_table.setItem(r, c, QTableWidgetItem(str(val)))
 
     def add(self):
-        cols = "customer_id, order_date, status, total, notes"
-        labels = {"customer_id": "Клиент ID", "order_date": "Дата", "status": "Статус", "total": "Сумма", "notes": "Заметки"}
-        dlg = EntityDialog(self.parent_win, self.db, "orders", cols, labels, "order_id")
+        """Add new order with correct fields."""
+        cols = "customer_id, order_date, status, notes"
+        labels = {"customer_id": "Клиент ID",
+                  "order_date": "Дата",
+                  "status": "Статус",
+                  "notes": "Заметки"}
+        row_data = {"order_date": self.db.fetchone("SELECT date('now')")[0]}
+        dlg = EntityDialog(self.parent_win, self.db, "orders",
+                           cols, labels, "order_id", row_data)
         if dlg.exec() == EntityDialog.DialogCode.Accepted and dlg.save():
             self.refresh()
 
@@ -297,11 +379,20 @@ class OrdersTab(QWidget):
         if not oid:
             QMessageBox.warning(self, "Ошибка", "Выберите заказ")
             return
-        row = self.db.fetchone("SELECT * FROM orders WHERE order_id = ?", (oid,))
+        try:
+            row = self.db.fetchone(
+                "SELECT * FROM orders WHERE order_id = ?", (oid,))
+        except Exception:
+            row = None
         if row:
             cols = "customer_id, order_date, status, total, notes"
-            labels = {"customer_id": "Клиент ID", "order_date": "Дата", "status": "Статус", "total": "Сумма", "notes": "Заметки"}
-            dlg = EntityDialog(self.parent_win, self.db, "orders", cols, labels, "order_id", row)
+            labels = {"customer_id": "Клиент ID",
+                      "order_date": "Дата",
+                      "status": "Статус",
+                      "total": "Сумма",
+                      "notes": "Заметки"}
+            dlg = EntityDialog(self.parent_win, self.db, "orders",
+                               cols, labels, "order_id", row)
             if dlg.exec() == EntityDialog.DialogCode.Accepted and dlg.save():
                 self.refresh()
 
@@ -310,36 +401,85 @@ class OrdersTab(QWidget):
         if not oid:
             QMessageBox.warning(self, "Ошибка", "Выберите заказ")
             return
-        if QMessageBox.question(self, "Подтверждение", f"Удалить заказ #{oid}?") == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM orders WHERE order_id = ?", (oid,))
-            self.orders_table.model().layoutChanged.emit()
-            QMessageBox.information(self, "Успех", "Заказ удалён")
+        if QMessageBox.question(self, "Подтверждение",
+                                f"Удалить заказ #{oid}?") == QMessageBox.StandardButton.Yes:
+            try:
+                self.db.execute(
+                    "DELETE FROM orders WHERE order_id = ?", (oid,))
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
+                return
             self.refresh()
+            QMessageBox.information(self, "Успех", "Заказ удалён")
 
     def edit_items(self):
+        """Add item to selected order."""
         oid = self._get_selected_order_id()
         if not oid:
             QMessageBox.warning(self, "Ошибка", "Выберите заказ")
             return
-        cols = "order_id, product_id, quantity, price"
-        labels = {"order_id": "Заказ ID", "product_id": "Товар ID", "quantity": "Кол-во", "price": "Цена"}
-        dlg = EntityDialog(self.parent_win, self.db, "order_items", cols, labels, "item_id")
-        if dlg.exec() == EntityDialog.DialogCode.Accepted and dlg.save():
+        # Get available products for ComboBox-like selection
+        products = self.db.fetchall("SELECT product_id, name FROM products")
+        if not products:
+            QMessageBox.warning(self, "Ошибка",
+                                "Нет продуктов в базе. Добавьте продукты.")
+            return
+        # Use SimpleInputDialog to select product by ID
+        from dialogs import SimpleInputDialog
+        product_ids = ", ".join(str(p["product_id"]) for p in products)
+        pid_dlg = SimpleInputDialog(
+            self, "Добавить товар",
+            f"ID продукта ({product_ids}):", "Введите ID товара")
+        if pid_dlg.exec() != pid_dlg.DialogCode.Accepted:
+            return
+        try:
+            product_id = int(pid_dlg.get_text())
+            # Verify product exists
+            prod = self.db.fetchone(
+                "SELECT name FROM products WHERE product_id = ?",
+                (product_id,))
+            if not prod:
+                QMessageBox.warning(self, "Ошибка", "Продукт не найден")
+                return
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Некорректный ID товара")
+            return
+        # Get quantity and price
+        qty_dlg = SimpleInputDialog(
+            self, "Кол-во", "Количество:", "Введите количество")
+        if qty_dlg.exec() != qty_dlg.DialogCode.Accepted:
+            return
+        try:
+            quantity = int(qty_dlg.get_text())
+            if quantity <= 0:
+                raise ValueError()
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Некорректное количество")
+            return
+        price_dlg = SimpleInputDialog(
+            self, "Цена", "Цена за единицу:", "Введите цену")
+        if price_dlg.exec() != price_dlg.DialogCode.Accepted:
+            return
+        try:
+            price = float(price_dlg.get_text())
+            if price < 0:
+                raise ValueError()
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Некорректная цена")
+            return
+        # Insert order item
+        try:
+            self.db.execute(
+                "INSERT INTO order_items (order_id, product_id, quantity, price) "
+                "VALUES (?, ?, ?, ?)", (oid, product_id, quantity, price))
             self.db.recalc_total(oid)
             self.refresh()
+            QMessageBox.information(self, "Успех", "Товар добавлен")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
     def add_item(self):
-        oid = self._get_selected_order_id()
-        if not oid:
-            QMessageBox.warning(self, "Ошибка", "Выберите заказ")
-            return
-        cols = "order_id, product_id, quantity, price"
-        labels = {"order_id": "Заказ ID", "product_id": "Товар ID", "quantity": "Кол-во", "price": "Цена"}
-        row_data = {"order_id": oid, "product_id": 1, "quantity": 1, "price": 0}
-        dlg = EntityDialog(self.parent_win, self.db, "order_items", cols, labels, "item_id", row_data)
-        if dlg.exec() == EntityDialog.DialogCode.Accepted and dlg.save():
-            self.db.recalc_total(oid)
-            self.refresh()
+        self.edit_items()
 
     def del_item(self):
         rows = self.items_table.selectedItems()
@@ -348,55 +488,73 @@ class OrdersTab(QWidget):
             QMessageBox.warning(self, "Ошибка", "Выберите товар")
             return
         oid = self._get_selected_order_id()
-        if QMessageBox.question(self, "Подтверждение", "Удалить товар из заказа?") == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM order_items WHERE item_id = ?", (iid,))
-            if oid:
-                self.db.recalc_total(oid)
-            self.items_table.model().layoutChanged.emit()
-            QMessageBox.information(self, "Успех", "Товар удалён")
-            self.refresh()
+        if QMessageBox.question(self, "Подтверждение",
+                                "Удалить товар из заказа?") == QMessageBox.StandardButton.Yes:
+            try:
+                self.db.execute(
+                    "DELETE FROM order_items WHERE item_id = ?", (iid,))
+                if oid:
+                    self.db.recalc_total(oid)
+                self.refresh()
+                QMessageBox.information(self, "Успех", "Товар удалён")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
 
     def import_csv(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Импорт заказы", "", "CSV Files (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Импорт заказы", "", "CSV Files (*.csv)")
         if not path:
             return
         try:
             with open(path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    vals = [row.get("order_id", ""), row.get("customer_id", ""),
-                            row.get("order_date", ""), row.get("status", "NEW"),
-                            row.get("total", "0"), row.get("notes", "")]
-                    self.db.execute("INSERT OR IGNORE INTO orders (order_id, customer_id, order_date, status, total, notes) VALUES (?,?,?,?,?,?)", vals)
-                QMessageBox.information(self, "Успех", "Импорт завершён")
-                self.refresh()
+                    vals = [
+                        row.get("customer_id", "1"),
+                        row.get("order_date", self.db.fetchone("SELECT date('now')")[0]),
+                        row.get("status", "NEW"),
+                        row.get("notes", "")
+                    ]
+                    self.db.execute(
+                        "INSERT INTO orders (customer_id, order_date, status, notes) "
+                        "VALUES (?,?,?,?)", vals)
+            QMessageBox.information(self, "Успех", "Импорт завершён")
+            self.refresh()
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Экспорт заказы", "orders.csv", "CSV Files (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Экспорт заказы", "orders.csv", "CSV Files (*.csv)")
         if not path:
             return
         try:
             with open(path, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow(["Order_id", "Customer_id", "Order_date", "Status", "Total", "Notes"])
+                writer.writerow(
+                    ["Order_id", "Customer_id", "Order_date",
+                     "Status", "Total", "Notes"])
                 for row in self.db.fetchall("SELECT * FROM orders"):
-                    writer.writerow([row["order_id"], row["customer_id"], row["order_date"],
-                                     row["status"], row["total"], row["notes"]])
-                QMessageBox.information(self, "Успех", "Экспорт завершён")
+                    writer.writerow([
+                        row["order_id"], row["customer_id"],
+                        row["order_date"], row["status"],
+                        row["total"], row["notes"]
+                    ])
+            QMessageBox.information(self, "Успех", "Экспорт завершён")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
+
 
 class CustomersTab(BaseTab):
     """Customers tab."""
 
     def __init__(self, db, parent_win):
         super().__init__(db, "customers",
-            "customer_id, name, phone, email, address",
-            {"customer_id": "ID", "name": "Имя", "phone": "Телефон",
-             "email": "Email", "address": "Адрес"},
-            "customer_id", "клиента", "клиент", parent_win)
+                         "customer_id, name, phone, email, address",
+                         {"customer_id": "ID", "name": "Имя",
+                          "phone": "Телефон",
+                          "email": "Email", "address": "Адрес"},
+                         "customer_id", "клиента", "клиент", parent_win)
 
 
 class SuppliersTab(BaseTab):
@@ -404,10 +562,11 @@ class SuppliersTab(BaseTab):
 
     def __init__(self, db, parent_win):
         super().__init__(db, "suppliers",
-            "supplier_id, name, phone, email, address",
-            {"supplier_id": "ID", "name": "Имя", "phone": "Телефон",
-             "email": "Email", "address": "Адрес"},
-            "supplier_id", "поставщика", "поставщик", parent_win)
+                         "supplier_id, name, phone, email, address",
+                         {"supplier_id": "ID", "name": "Имя",
+                          "phone": "Телефон",
+                          "email": "Email", "address": "Адрес"},
+                         "supplier_id", "поставщика", "поставщик", parent_win)
 
 
 class CategoriesTab(BaseTab):
@@ -415,6 +574,6 @@ class CategoriesTab(BaseTab):
 
     def __init__(self, db, parent_win):
         super().__init__(db, "categories",
-            "category_id, name",
-            {"category_id": "ID", "name": "Название"},
-            "category_id", "категорию", "категория", parent_win)
+                         "category_id, name",
+                         {"category_id": "ID", "name": "Название"},
+                         "category_id", "категорию", "категория", parent_win)
