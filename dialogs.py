@@ -437,7 +437,7 @@ class LoginDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(28, 28, 28, 24)
 
-        title = QLabel("<h2 style='margin:0'>ПракрикаП</h2><p style='color:#6A7290;margin:4px 0 0 0'>Оптовая торговля</p>")
+        title = QLabel("<h2 style='margin:0'>ООО Атрикс</h2><p style='color:#6A7290;margin:4px 0 0 0'>Оптовая торговля</p>")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
         layout.addSpacing(8)
@@ -459,7 +459,6 @@ class LoginDialog(QDialog):
         self.lbl_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_error)
 
-        # Кнопки одинаковой ширины
         btn_login = QPushButton("Войти")
         btn_login.setObjectName("btn_login")
         btn_login.setDefault(True)
@@ -487,7 +486,7 @@ class LoginDialog(QDialog):
         self.accept()
 
     def _on_exit(self):
-        """3акрывает приложение полностью."""
+        """Закрывает приложение полностью."""
         self.user = None
         self.done(LOGIN_EXIT_CODE)
 
