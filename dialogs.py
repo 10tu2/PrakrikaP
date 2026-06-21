@@ -1,8 +1,38 @@
+import re
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
     QSpinBox, QComboBox, QDialogButtonBox, QVBoxLayout,
     QMessageBox
 )
+
+# Characters forbidden in text fields
+_FORBIDDEN_RE = re.compile(r'[\x00-\x1f<>"\\]')
+
+
+def _validate_text(value: str, field_label: str, required: bool = True) -> str | None:
+    """Return an error message if validation fails, else None."""
+    stripped = value.strip()
+    if required and not stripped:
+        return f'Поле «{field_label}» не может быть пустым.'
+    if stripped and _FORBIDDEN_RE.search(stripped):
+        return (f'Поле «{field_label}» содержит недопустимые символы.\n'
+                f'Запрещены: управляющие символы, < > " \\')
+    return None
+
+
+def _validate_date(value: str) -> str | None:
+    """Validate date in YYYY-MM-DD format."""
+    stripped = value.strip()
+    if not stripped:
+        return 'Поле «Дата» не может быть пустым.'
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stripped):
+        return 'Поле «Дата» должно быть в формате ГГГГ-ММ-ДД (например, 2025-06-21).'
+    return None
+
+
+def _show_error(parent, message: str):
+    QMessageBox.warning(parent, 'Ошибка ввода', message)
+
 
 class _BaseDialog(QDialog):
     """Base dialog with OK / Cancel buttons and a QFormLayout."""
@@ -69,6 +99,14 @@ class ProductDialog(_BaseDialog):
             self.f_sup.setCurrentIndex(idx)
 
     def accept(self):
+        for err in [
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_sku.text(), 'Артикул'),
+        ]:
+            if err:
+                _show_error(self, err)
+                return
+
         cat_id = None
         if self._cat_ids and self.f_cat.currentIndex() >= 0:
             cat_id = self._cat_ids[self.f_cat.currentIndex()]
@@ -78,12 +116,15 @@ class ProductDialog(_BaseDialog):
         if self.row:
             self.db.execute(
                 "UPDATE products SET name=?,sku=?,price=?,stock=?,category_id=?,supplier_id=? WHERE id=?",
-                (self.f_name.text(), self.f_sku.text(), self.f_price.value(), self.f_stock.value(), cat_id, sup_id, self.row["id"]),
+                (self.f_name.text().strip(), self.f_sku.text().strip(),
+                 self.f_price.value(), self.f_stock.value(),
+                 cat_id, sup_id, self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO products(name,sku,price,stock,category_id,supplier_id) VALUES(?,?,?,?,?,?)",
-                (self.f_name.text(), self.f_sku.text(), self.f_price.value(), self.f_stock.value(), cat_id, sup_id),
+                (self.f_name.text().strip(), self.f_sku.text().strip(),
+                 self.f_price.value(), self.f_stock.value(), cat_id, sup_id),
             )
         super().accept()
 
@@ -114,15 +155,34 @@ class ClientDialog(_BaseDialog):
         self.f_address.setText(row["address"] or "")
 
     def accept(self):
+        for err in [
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_contact.text(), 'Контактное лицо', required=False),
+            _validate_text(self.f_phone.text(), 'Телефон', required=False),
+            _validate_text(self.f_address.text(), 'Адрес', required=False),
+        ]:
+            if err:
+                _show_error(self, err)
+                return
+
+        # Additional phone validation: digits, spaces, +, -, (, ) only
+        phone = self.f_phone.text().strip()
+        if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
+            _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
+                              'Допустимы: цифры, пробелы, + - ( ) .')
+            return
+
         if self.row:
             self.db.execute(
                 "UPDATE clients SET name=?,contact=?,phone=?,address=? WHERE id=?",
-                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text(), self.row["id"]),
+                (self.f_name.text().strip(), self.f_contact.text().strip(),
+                 phone, self.f_address.text().strip(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO clients(name,contact,phone,address) VALUES(?,?,?,?)",
-                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text()),
+                (self.f_name.text().strip(), self.f_contact.text().strip(),
+                 phone, self.f_address.text().strip()),
             )
         super().accept()
 
@@ -153,15 +213,34 @@ class SupplierDialog(_BaseDialog):
         self.f_address.setText(row["address"] or "")
 
     def accept(self):
+        for err in [
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_contact.text(), 'Контактное лицо', required=False),
+            _validate_text(self.f_phone.text(), 'Телефон', required=False),
+            _validate_text(self.f_address.text(), 'Адрес', required=False),
+        ]:
+            if err:
+                _show_error(self, err)
+                return
+
+        # Additional phone validation
+        phone = self.f_phone.text().strip()
+        if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
+            _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
+                              'Допустимы: цифры, пробелы, + - ( ) .')
+            return
+
         if self.row:
             self.db.execute(
                 "UPDATE suppliers SET name=?,contact=?,phone=?,address=? WHERE id=?",
-                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text(), self.row["id"]),
+                (self.f_name.text().strip(), self.f_contact.text().strip(),
+                 phone, self.f_address.text().strip(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO suppliers(name,contact,phone,address) VALUES(?,?,?,?)",
-                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text()),
+                (self.f_name.text().strip(), self.f_contact.text().strip(),
+                 phone, self.f_address.text().strip()),
             )
         super().accept()
 
@@ -183,18 +262,22 @@ class CategoryDialog(_BaseDialog):
         self.f_name.setText(row["name"] or "")
 
     def accept(self):
+        err = _validate_text(self.f_name.text(), 'Название')
+        if err:
+            _show_error(self, err)
+            return
         if self.row:
             self.db.execute(
                 "UPDATE categories SET name=? WHERE id=?",
-                (self.f_name.text(), self.row["id"]),
+                (self.f_name.text().strip(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO categories(name) VALUES(?)",
-                (self.f_name.text(),),
+                (self.f_name.text().strip(),),
             )
         super().accept()
-        
+
 
 # ----------------------------------------------------------------------
 # OrderDialog
@@ -211,6 +294,7 @@ class OrderDialog(_BaseDialog):
         if not self._client_ids:
             self.f_client.setEnabled(False)
         self.f_date = QLineEdit()
+        self.f_date.setPlaceholderText('ГГГГ-ММ-ДД')
         self.f_status = QComboBox()
         self.f_status.addItems(["новый", "в обработке", "выполнен", "отменён"])
         self.f_total = QDoubleSpinBox()
@@ -236,17 +320,28 @@ class OrderDialog(_BaseDialog):
         self.f_total.setValue(float(row["total"]) if row["total"] else 0.0)
 
     def accept(self):
+        if not self._client_ids:
+            _show_error(self, 'Нет доступных клиентов. Сначала добавьте клиента.')
+            return
+
+        err = _validate_date(self.f_date.text())
+        if err:
+            _show_error(self, err)
+            return
+
         client_id = None
         if self._client_ids and self.f_client.currentIndex() >= 0:
             client_id = self._client_ids[self.f_client.currentIndex()]
         if self.row:
             self.db.execute(
                 "UPDATE orders SET client_id=?,date=?,status=?,total=? WHERE id=?",
-                (client_id, self.f_date.text(), self.f_status.currentText(), self.f_total.value(), self.row["id"]),
+                (client_id, self.f_date.text().strip(),
+                 self.f_status.currentText(), self.f_total.value(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,?)",
-                (client_id, self.f_date.text(), self.f_status.currentText(), self.f_total.value()),
+                (client_id, self.f_date.text().strip(),
+                 self.f_status.currentText(), self.f_total.value()),
             )
         super().accept()
