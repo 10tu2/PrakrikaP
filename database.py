@@ -117,11 +117,20 @@ class Database:
         self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
 
     def delete_order(self, oid: int):
+        items = self.fetchall("SELECT product_id, qty FROM order_items WHERE order_id=?", (oid,))
+        for it in items:
+            if it["product_id"] is not None:
+                self.execute(
+                    "UPDATE products SET stock = stock + ? WHERE id=?",
+                    (it["qty"], it["product_id"]),
+                )
+        self.execute("DELETE FROM order_items WHERE order_id=?", (oid,))
         self.execute("DELETE FROM orders WHERE id=?", (oid,))
 
     def get_order_items(self, oid: int):
         sql = """
             SELECT oi.id,
+                   oi.product_id,
                    COALESCE(p.name, '') AS product,
                    oi.qty,
                    oi.price,
@@ -132,15 +141,30 @@ class Database:
         """
         return self.fetchall(sql, (oid,))
 
+    def get_product_stock(self, product_id: int) -> int:
+        row = self.fetchone("SELECT COALESCE(stock, 0) AS stock FROM products WHERE id=?", (product_id,))
+        return int(row["stock"]) if row else 0
+
     def add_order_item(self, order_id: int, product_id: int, qty: int, price: float) -> int:
+        stock = self.get_product_stock(product_id)
+        if qty > stock:
+            raise ValueError("Недостаточно товара на складе.")
+
         row_id = self.execute(
             "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?,?,?,?)",
             (order_id, product_id, qty, price),
         )
+        self.execute("UPDATE products SET stock = stock - ? WHERE id=?", (qty, product_id))
         self._recalc_order(order_id)
         return row_id
 
     def delete_order_item(self, item_id: int, order_id: int):
+        item = self.fetchone("SELECT product_id, qty FROM order_items WHERE id=?", (item_id,))
+        if item and item["product_id"] is not None:
+            self.execute(
+                "UPDATE products SET stock = stock + ? WHERE id=?",
+                (item["qty"], item["product_id"]),
+            )
         self.execute("DELETE FROM order_items WHERE id=?", (item_id,))
         self._recalc_order(order_id)
 

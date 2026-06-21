@@ -294,21 +294,19 @@ class OrderDialog(QDialog):
         self.setWindowTitle("Заказ")
         self.setMinimumWidth(680)
 
-        # ---- products catalogue (id, name, price) ----
         prods = db.fetchall(
-            "SELECT id, name, price FROM products ORDER BY name"
+            "SELECT id, name, price, stock FROM products ORDER BY name"
         )
-        self._prod_ids   = [p[0] for p in prods]
+        self._prod_ids = [p[0] for p in prods]
         self._prod_names = [p[1] for p in prods]
         self._prod_price = {p[0]: float(p[2] or 0) for p in prods}
+        self._prod_stock = {p[0]: int(p[3] or 0) for p in prods}
 
-        # ---- clients list ----
         clients = db.fetchall("SELECT id, name FROM clients ORDER BY name")
         self._client_ids = [c[0] for c in clients]
 
         main = QVBoxLayout(self)
 
-        # -- header form --
         form = QFormLayout()
         self.f_client = QComboBox()
         self.f_client.addItems([c[1] for c in clients])
@@ -326,10 +324,8 @@ class OrderDialog(QDialog):
         form.addRow("Статус", self.f_status)
         main.addLayout(form)
 
-        # -- items section --
         main.addWidget(QLabel("<b>Товары в заказе:</b>"))
 
-        # add-item row
         add_row = QHBoxLayout()
         self.cb_product = QComboBox()
         self.cb_product.addItems(self._prod_names)
@@ -353,7 +349,6 @@ class OrderDialog(QDialog):
         add_row.addWidget(self.btn_del_item)
         main.addLayout(add_row)
 
-        # items table
         self.items_table = QTableWidget()
         self.items_table.setColumnCount(len(self._ITEM_HEADERS))
         self.items_table.setHorizontalHeaderLabels(self._ITEM_HEADERS)
@@ -361,11 +356,10 @@ class OrderDialog(QDialog):
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.items_table.setColumnHidden(0, True)  # hide item id
+        self.items_table.setColumnHidden(0, True)
         self.items_table.setMinimumHeight(180)
         main.addWidget(self.items_table)
 
-        # total label
         total_row = QHBoxLayout()
         total_row.addStretch()
         self.lbl_total = QLabel("Итого: 0.00")
@@ -373,7 +367,6 @@ class OrderDialog(QDialog):
         total_row.addWidget(self.lbl_total)
         main.addLayout(total_row)
 
-        # OK / Cancel
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -381,18 +374,14 @@ class OrderDialog(QDialog):
         btns.rejected.connect(self.reject)
         main.addWidget(btns)
 
-        # connections
         self.btn_add_item.clicked.connect(self._on_add_item)
         self.btn_del_item.clicked.connect(self._on_del_item)
 
-        # pending items for new orders: list of (tmp_id, product_id, qty, price)
-        # For edit mode items are stored in DB; we use tmp_id = -1 for new ones
-        self._pending: list[dict] = []   # used only in CREATE mode
+        self._pending: list[dict] = []
         self._tmp_counter = 0
 
         self._fill_form(row)
 
-    # ------------------------------------------------------------------ helpers
     def _fill_form(self, row):
         if row is None:
             return
@@ -405,7 +394,6 @@ class OrderDialog(QDialog):
         idx = self.f_status.findText(row["status"] or "новый")
         if idx >= 0:
             self.f_status.setCurrentIndex(idx)
-        # load existing items from DB
         if row is not None:
             items = self.db.get_order_items(row["id"])
             for it in items:
@@ -415,14 +403,15 @@ class OrderDialog(QDialog):
                     qty=it["qty"],
                     price=it["price"],
                 )
+                if it["product_id"] is not None:
+                    self._prod_stock[it["product_id"]] = self._prod_stock.get(it["product_id"], 0) + int(it["qty"])
         self._refresh_total()
 
     def _append_item_row(self, item_id, prod_name, qty, price):
         r = self.items_table.rowCount()
         self.items_table.insertRow(r)
         subtotal = qty * price
-        for c, val in enumerate([str(item_id), prod_name, str(qty),
-                                  f"{price:.2f}", f"{subtotal:.2f}"]):
+        for c, val in enumerate([str(item_id), prod_name, str(qty), f"{price:.2f}", f"{subtotal:.2f}"]):
             self.items_table.setItem(r, c, QTableWidgetItem(val))
 
     def _refresh_total(self):
@@ -434,28 +423,34 @@ class OrderDialog(QDialog):
                 pass
         self.lbl_total.setText(f"Итого: {total:.2f}")
 
-    # ------------------------------------------------------------------ item actions
     def _on_add_item(self):
         if not self._prod_ids:
             _show_error(self, "Нет доступных товаров. Сначала добавьте товары.")
             return
         idx = self.cb_product.currentIndex()
-        prod_id   = self._prod_ids[idx]
+        prod_id = self._prod_ids[idx]
         prod_name = self._prod_names[idx]
-        price     = self._prod_price[prod_id]
-        qty       = self.sp_qty.value()
+        price = self._prod_price[prod_id]
+        qty = self.sp_qty.value()
+        available = self._prod_stock.get(prod_id, 0)
+
+        if qty > available:
+            _show_error(self, f'Недостаточно товара «{prod_name}» на складе. Доступно: {available}.')
+            return
 
         if self.row is not None:
-            # EDIT mode: save directly to DB
-            self.db.add_order_item(self.row["id"], prod_id, qty, price)
+            try:
+                self.db.add_order_item(self.row["id"], prod_id, qty, price)
+            except ValueError as e:
+                _show_error(self, str(e))
+                return
             item_id = self.db.fetchone(
                 "SELECT id FROM order_items WHERE order_id=? ORDER BY id DESC LIMIT 1",
                 (self.row["id"],)
             )["id"]
         else:
-            # CREATE mode: buffer in memory
             self._tmp_counter += 1
-            item_id = -self._tmp_counter   # negative = not yet in DB
+            item_id = -self._tmp_counter
             self._pending.append({
                 "tmp_id": item_id,
                 "product_id": prod_id,
@@ -463,6 +458,7 @@ class OrderDialog(QDialog):
                 "price": price,
             })
 
+        self._prod_stock[prod_id] = available - qty
         self._append_item_row(item_id, prod_name, qty, price)
         self._refresh_total()
 
@@ -471,18 +467,33 @@ class OrderDialog(QDialog):
         if sel < 0:
             return
         item_id = int(self.items_table.item(sel, 0).text())
+        prod_name = self.items_table.item(sel, 1).text()
+        qty = int(self.items_table.item(sel, 2).text())
+        prod_id = None
+        for pid, name in zip(self._prod_ids, self._prod_names):
+            if name == prod_name:
+                prod_id = pid
+                break
 
         if self.row is not None and item_id > 0:
-            # EDIT mode: delete from DB
             self.db.delete_order_item(item_id, self.row["id"])
         else:
-            # CREATE mode: remove from pending buffer
+            removed = None
+            for p in self._pending:
+                if p["tmp_id"] == item_id:
+                    removed = p
+                    break
             self._pending = [p for p in self._pending if p["tmp_id"] != item_id]
+            if removed is not None:
+                prod_id = removed["product_id"]
+                qty = removed["qty"]
+
+        if prod_id is not None:
+            self._prod_stock[prod_id] = self._prod_stock.get(prod_id, 0) + qty
 
         self.items_table.removeRow(sel)
         self._refresh_total()
 
-    # ------------------------------------------------------------------ accept
     def accept(self):
         if not self._client_ids:
             _show_error(self, "Нет доступных клиентов. Сначала добавьте клиента.")
@@ -498,35 +509,33 @@ class OrderDialog(QDialog):
             return
 
         client_id = self._client_ids[self.f_client.currentIndex()]
-        date      = self.f_date.text().strip()
-        status    = self.f_status.currentText()
+        date = self.f_date.text().strip()
+        status = self.f_status.currentText()
 
         if self.row:
-            # EDIT: update header only (items already saved live)
             self.db.execute(
                 "UPDATE orders SET client_id=?,date=?,status=? WHERE id=?",
                 (client_id, date, status, self.row["id"]),
             )
             self.db._recalc_order(self.row["id"])
         else:
-            # CREATE: insert order, then flush pending items
             order_id = self.db.execute(
                 "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,0)",
                 (client_id, date, status),
             )
             for p in self._pending:
-                self.db.execute(
-                    "INSERT INTO order_items(order_id,product_id,qty,price) VALUES(?,?,?,?)",
-                    (order_id, p["product_id"], p["qty"], p["price"]),
-                )
+                stock = self.db.get_product_stock(p["product_id"])
+                if p["qty"] > stock:
+                    self.db.execute("DELETE FROM orders WHERE id=?", (order_id,))
+                    prod_name = self._prod_names[self._prod_ids.index(p["product_id"])]
+                    _show_error(self, f'Недостаточно товара «{prod_name}» на складе. Доступно: {stock}.')
+                    return
+                self.db.add_order_item(order_id, p["product_id"], p["qty"], p["price"])
             self.db._recalc_order(order_id)
 
         super().accept()
 
 
-# ----------------------------------------------------------------------
-# ViewOrderDialog — read-only order details
-# ----------------------------------------------------------------------
 class ViewOrderDialog(QDialog):
     """Read-only dialog showing full order details."""
 
@@ -546,7 +555,6 @@ class ViewOrderDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # header info
         info = QFormLayout()
         info.addRow("Номер заказа:",  QLabel(str(order["id"])))
         info.addRow("Клиент:",        QLabel(order["client"]))
@@ -554,7 +562,6 @@ class ViewOrderDialog(QDialog):
         info.addRow("Статус:",        QLabel(order["status"] or "—"))
         layout.addLayout(info)
 
-        # items table
         layout.addWidget(QLabel("<b>Состав заказа:</b>"))
         tbl = QTableWidget(len(items), len(self._ITEM_HEADERS))
         tbl.setHorizontalHeaderLabels(self._ITEM_HEADERS)
@@ -569,7 +576,6 @@ class ViewOrderDialog(QDialog):
             tbl.setItem(r, 3, QTableWidgetItem(f"{float(it['subtotal']):.2f}"))
         layout.addWidget(tbl)
 
-        # total
         total_row = QHBoxLayout()
         total_row.addStretch()
         lbl = QLabel(f"<b>Итого: {float(order['total']):.2f}</b>")
@@ -577,7 +583,6 @@ class ViewOrderDialog(QDialog):
         total_row.addWidget(lbl)
         layout.addLayout(total_row)
 
-        # close button
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
