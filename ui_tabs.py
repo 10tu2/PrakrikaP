@@ -126,7 +126,7 @@ class ProductsTab(BaseTab):
 
 
 # ----------------------------------------------------------------------
-# OrdersTab
+# OrdersTab  — порядок кнопок: Добавить | Изменить | Просмотр | Удалить
 # ----------------------------------------------------------------------
 class OrdersTab(QWidget):
     HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма", "Позиций"]
@@ -142,9 +142,9 @@ class OrdersTab(QWidget):
         btn_bar.setSpacing(6)
         self.btn_add  = _btn("＋  Добавить",  "add",    "btn_add")
         self.btn_edit = _btn("✎  Изменить",  "edit",   "btn_edit")
-        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
         self.btn_view = _btn("👁  Просмотр",  "view",   "btn_view")
-        for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_view):
+        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
+        for b in (self.btn_add, self.btn_edit, self.btn_view, self.btn_del):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
         layout.addLayout(btn_bar)

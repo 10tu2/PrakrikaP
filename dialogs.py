@@ -1,3 +1,4 @@
+import sys
 import re
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
@@ -459,11 +460,16 @@ class LoginDialog(QDialog):
         self.lbl_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_error)
 
-        btn = QPushButton("  Войти")
-        btn.setObjectName("btn_login")
-        btn.setDefault(True)
-        btn.clicked.connect(self._try_login)
-        layout.addWidget(btn)
+        btn_login = QPushButton("  Войти")
+        btn_login.setObjectName("btn_login")
+        btn_login.setDefault(True)
+        btn_login.clicked.connect(self._try_login)
+        layout.addWidget(btn_login)
+
+        btn_exit = QPushButton("Выход")
+        btn_exit.setObjectName("btn_exit")
+        btn_exit.clicked.connect(self._on_exit)
+        layout.addWidget(btn_exit)
 
     def _try_login(self):
         username = self.f_user.text().strip()
@@ -479,6 +485,11 @@ class LoginDialog(QDialog):
             return
         self.user = user
         self.accept()
+
+    def _on_exit(self):
+        """Закрывает приложение полностью с экрана входа."""
+        self.user = None
+        self.reject()
 
 
 # ----------------------------------------------------------------------
@@ -637,12 +648,12 @@ class OrderDialog(QDialog):
         if not self._prod_ids:
             _show_error(self, "Нет доступных товаров. Сначала добавьте товары.")
             return
-        idx      = self.cb_product.currentIndex()
-        prod_id  = self._prod_ids[idx]
+        idx       = self.cb_product.currentIndex()
+        prod_id   = self._prod_ids[idx]
         prod_name = self._prod_names[idx]
-        price    = self._prod_price[prod_id]
-        qty      = self.sp_qty.value()
-        avail    = self._prod_avail.get(prod_id, 0)
+        price     = self._prod_price[prod_id]
+        qty       = self.sp_qty.value()
+        avail     = self._prod_avail.get(prod_id, 0)
         if qty > avail:
             _show_error(self, f'Недостаточно товара «{prod_name}». Доступно: {avail}.')
             return
