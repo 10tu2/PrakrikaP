@@ -168,7 +168,7 @@ QPushButton#btn_login {
 QPushButton#btn_login:hover   { background-color: #3B5FBF; }
 QPushButton#btn_login:pressed { background-color: #2D4A9E; }
 
-/* Кнопка «Выйти» в строке статуса */
+/* Кнопка «Выйти» в тулбаре главного окна */
 QPushButton#btn_logout {
     background-color: #E74C3C;
     color: #FFFFFF;
@@ -181,17 +181,17 @@ QPushButton#btn_logout {
 QPushButton#btn_logout:hover   { background-color: #C0392B; }
 QPushButton#btn_logout:pressed { background-color: #962D22; }
 
-/* Кнопка «Выход» в LoginDialog */
+/* Кнопка «Выход» в LoginDialog — красная */
 QPushButton#btn_exit {
-    background-color: #BDC3CF;
-    color: #2C3448;
+    background-color: #E74C3C;
+    color: #FFFFFF;
     font-size: 13px;
     padding: 6px 0;
     border-radius: 6px;
     font-weight: 500;
 }
-QPushButton#btn_exit:hover   { background-color: #A8B0BF; }
-QPushButton#btn_exit:pressed { background-color: #8090A0; }
+QPushButton#btn_exit:hover   { background-color: #C0392B; }
+QPushButton#btn_exit:pressed { background-color: #962D22; }
 
 /* ──────────────────── Поля ввода ────────────────────────────── */
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
