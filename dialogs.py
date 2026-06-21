@@ -4,10 +4,8 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 
-
 class _BaseDialog(QDialog):
     """Base dialog with OK / Cancel buttons and a QFormLayout."""
-
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -15,47 +13,45 @@ class _BaseDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(self.form)
         btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
-
 # ----------------------------------------------------------------------
 # ProductDialog
 # ----------------------------------------------------------------------
-
 class ProductDialog(_BaseDialog):
-
     def __init__(self, db, row=None):
         super().__init__("Товар")
         self.db = db
         self.row = row
-
         self.f_name = QLineEdit()
         self.f_sku = QLineEdit()
         self.f_price = QDoubleSpinBox()
         self.f_price.setDecimals(2)
-        self.f_price.setMaximum(9_999_999.99)
+        self.f_price.setMaximum(9999999.99)
         self.f_stock = QSpinBox()
-        self.f_stock.setMaximum(999_999)
-
+        self.f_stock.setMaximum(999999)
         self.f_cat = QComboBox()
         cats = db.fetchall("SELECT id, name FROM categories ORDER BY name")
         self._cat_ids = [r[0] for r in cats]
         self.f_cat.addItems([r[1] for r in cats])
         if not self._cat_ids:
             self.f_cat.setEnabled(False)
-
         self.f_sup = QComboBox()
         sups = db.fetchall("SELECT id, name FROM suppliers ORDER BY name")
         self._sup_ids = [r[0] for r in sups]
         self.f_sup.addItems([r[1] for r in sups])
         if not self._sup_ids:
             self.f_sup.setEnabled(False)
-
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Артикул", self.f_sku)
+        self.form.addRow("Цена", self.f_price)
+        self.form.addRow("Остаток", self.f_stock)
+        self.form.addRow("Категория", self.f_cat)
+        self.form.addRow("Поставщик", self.f_sup)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -82,26 +78,19 @@ class ProductDialog(_BaseDialog):
         if self.row:
             self.db.execute(
                 "UPDATE products SET name=?,sku=?,price=?,stock=?,category_id=?,supplier_id=? WHERE id=?",
-                (self.f_name.text(), self.f_sku.text(),
-                 self.f_price.value(), self.f_stock.value(),
-                 cat_id, sup_id, self.row["id"]),
+                (self.f_name.text(), self.f_sku.text(), self.f_price.value(), self.f_stock.value(), cat_id, sup_id, self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO products(name,sku,price,stock,category_id,supplier_id) VALUES(?,?,?,?,?,?)",
-                (self.f_name.text(), self.f_sku.text(),
-                 self.f_price.value(), self.f_stock.value(),
-                 cat_id, sup_id),
+                (self.f_name.text(), self.f_sku.text(), self.f_price.value(), self.f_stock.value(), cat_id, sup_id),
             )
         super().accept()
-
 
 # ----------------------------------------------------------------------
 # ClientDialog
 # ----------------------------------------------------------------------
-
 class ClientDialog(_BaseDialog):
-
     def __init__(self, db, row=None):
         super().__init__("Клиент")
         self.db = db
@@ -110,6 +99,10 @@ class ClientDialog(_BaseDialog):
         self.f_contact = QLineEdit()
         self.f_phone = QLineEdit()
         self.f_address = QLineEdit()
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Контактное лицо", self.f_contact)
+        self.form.addRow("Телефон", self.f_phone)
+        self.form.addRow("Адрес", self.f_address)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -124,25 +117,19 @@ class ClientDialog(_BaseDialog):
         if self.row:
             self.db.execute(
                 "UPDATE clients SET name=?,contact=?,phone=?,address=? WHERE id=?",
-                (self.f_name.text(), self.f_contact.text(),
-                 self.f_phone.text(), self.f_address.text(),
-                 self.row["id"]),
+                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO clients(name,contact,phone,address) VALUES(?,?,?,?)",
-                (self.f_name.text(), self.f_contact.text(),
-                 self.f_phone.text(), self.f_address.text()),
+                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text()),
             )
         super().accept()
-
 
 # ----------------------------------------------------------------------
 # SupplierDialog
 # ----------------------------------------------------------------------
-
 class SupplierDialog(_BaseDialog):
-
     def __init__(self, db, row=None):
         super().__init__("Поставщик")
         self.db = db
@@ -151,6 +138,10 @@ class SupplierDialog(_BaseDialog):
         self.f_contact = QLineEdit()
         self.f_phone = QLineEdit()
         self.f_address = QLineEdit()
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Контактное лицо", self.f_contact)
+        self.form.addRow("Телефон", self.f_phone)
+        self.form.addRow("Адрес", self.f_address)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -165,32 +156,31 @@ class SupplierDialog(_BaseDialog):
         if self.row:
             self.db.execute(
                 "UPDATE suppliers SET name=?,contact=?,phone=?,address=? WHERE id=?",
-                (self.f_name.text(), self.f_contact.text(),
-                 self.f_phone.text(), self.f_address.text(),
-                 self.row["id"]),
+                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text(), self.row["id"]),
             )
         else:
             self.db.execute(
                 "INSERT INTO suppliers(name,contact,phone,address) VALUES(?,?,?,?)",
-                (self.f_name.text(), self.f_contact.text(),
-                 self.f_phone.text(), self.f_address.text()),
+                (self.f_name.text(), self.f_contact.text(), self.f_phone.text(), self.f_address.text()),
             )
         super().accept()
-
 
 # ----------------------------------------------------------------------
 # CategoryDialog
 # ----------------------------------------------------------------------
-
 class CategoryDialog(_BaseDialog):
-
     def __init__(self, db, row=None):
         super().__init__("Категория")
         self.db = db
         self.row = row
         self.f_name = QLineEdit()
-        if row:
-            self.f_name.setText(row["name"] or "")
+        self.form.addRow("Название", self.f_name)
+        self._fill_form(row)
+
+    def _fill_form(self, row):
+        if row is None:
+            return
+        self.f_name.setText(row["name"] or "")
 
     def accept(self):
         if self.row:
@@ -204,56 +194,59 @@ class CategoryDialog(_BaseDialog):
                 (self.f_name.text(),),
             )
         super().accept()
-
+        
 
 # ----------------------------------------------------------------------
 # OrderDialog
 # ----------------------------------------------------------------------
-
 class OrderDialog(_BaseDialog):
-    STATUSES = ["новый", "в обработке", "отгружен", "отменён"]
-
     def __init__(self, db, row=None):
         super().__init__("Заказ")
         self.db = db
         self.row = row
-
         self.f_client = QComboBox()
         clients = db.fetchall("SELECT id, name FROM clients ORDER BY name")
         self._client_ids = [r[0] for r in clients]
         self.f_client.addItems([r[1] for r in clients])
         if not self._client_ids:
             self.f_client.setEnabled(False)
-
-        self.f_status = QComboBox()
-        self.f_status.addItems(self.STATUSES)
         self.f_date = QLineEdit()
-        self.f_date.setPlaceholderText("YYYY-MM-DD")
-
+        self.f_status = QComboBox()
+        self.f_status.addItems(["новый", "в обработке", "выполнен", "отменён"])
+        self.f_total = QDoubleSpinBox()
+        self.f_total.setDecimals(2)
+        self.f_total.setMaximum(9999999.99)
         self.form.addRow("Клиент", self.f_client)
+        self.form.addRow("Дата", self.f_date)
         self.form.addRow("Статус", self.f_status)
-        self.form.addRow("Дата (YYYY-MM-DD)", self.f_date)
+        self.form.addRow("Сумма", self.f_total)
+        self._fill_form(row)
 
-        if row:
-            self.f_date.setText(row["date"] or "")
-            stat_idx = self.f_status.findText(row["status"])
-            if stat_idx >= 0:
-                self.f_status.setCurrentIndex(stat_idx)
+    def _fill_form(self, row):
+        if row is None:
+            return
+        if self._client_ids and row["client_id"] is not None:
+            idx = self._client_ids.index(row["client_id"])
+            self.f_client.setCurrentIndex(idx)
+        self.f_date.setText(row["date"] or "")
+        status = row["status"] or "новый"
+        idx = self.f_status.findText(status)
+        if idx >= 0:
+            self.f_status.setCurrentIndex(idx)
+        self.f_total.setValue(float(row["total"]) if row["total"] else 0.0)
 
     def accept(self):
         client_id = None
         if self._client_ids and self.f_client.currentIndex() >= 0:
             client_id = self._client_ids[self.f_client.currentIndex()]
-        status = self.f_status.currentText()
-        date_val = self.f_date.text().strip()
         if self.row:
             self.db.execute(
-                "UPDATE orders SET client_id=?,status=?,date=? WHERE id=?",
-                (client_id, status, date_val, self.row["id"]),
+                "UPDATE orders SET client_id=?,date=?,status=?,total=? WHERE id=?",
+                (client_id, self.f_date.text(), self.f_status.currentText(), self.f_total.value(), self.row["id"]),
             )
         else:
             self.db.execute(
-                "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,0)",
-                (client_id, date_val, status),
+                "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,?)",
+                (client_id, self.f_date.text(), self.f_status.currentText(), self.f_total.value()),
             )
         super().accept()
