@@ -12,7 +12,7 @@ from ui_tabs import (
 )
 from theme import LIGHT_THEME
 
-APP_TITLE = "ПракрикаП — Оптовая торговля"
+APP_TITLE = "ООО Атрикс"
 DB_PATH   = "trade_store.db"
 
 
