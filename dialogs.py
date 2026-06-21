@@ -420,6 +420,10 @@ class UserDialog(_BaseDialog):
 # ----------------------------------------------------------------------
 # LoginDialog
 # ----------------------------------------------------------------------
+# Код результата: Accepted = вошёл, Rejected = пользователь вышел из приложения
+LOGIN_EXIT_CODE = 2   # пользователь нажал «Выход» — закрыть приложение
+
+
 class LoginDialog(QDialog):
     def __init__(self, db, parent=None):
         super().__init__(parent)
@@ -455,7 +459,8 @@ class LoginDialog(QDialog):
         self.lbl_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_error)
 
-        btn_login = QPushButton("  Войти")
+        # Кнопки одинаковой ширины
+        btn_login = QPushButton("Войти")
         btn_login.setObjectName("btn_login")
         btn_login.setDefault(True)
         btn_login.clicked.connect(self._try_login)
@@ -482,9 +487,9 @@ class LoginDialog(QDialog):
         self.accept()
 
     def _on_exit(self):
-        """Закрывает приложение полностью с экрана входа."""
+        """3акрывает приложение полностью."""
         self.user = None
-        self.reject()
+        self.done(LOGIN_EXIT_CODE)
 
 
 # ----------------------------------------------------------------------

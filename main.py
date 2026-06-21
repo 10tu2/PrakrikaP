@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from database import Database, ROLE_ADMIN
-from dialogs import LoginDialog
+from dialogs import LoginDialog, LOGIN_EXIT_CODE
 from ui_tabs import (
     ProductsTab, OrdersTab, ClientsTab,
     SuppliersTab, CategoriesTab, UsersTab,
@@ -72,7 +72,14 @@ def _run_app(app: QApplication, db: Database):
     """Показывает LoginDialog, затем MainWindow. При выходе возвращает к LoginDialog."""
     while True:
         login = LoginDialog(db)
-        if login.exec() != LoginDialog.DialogCode.Accepted or login.user is None:
+        result = login.exec()
+
+        # Пользователь нажал «Выход» — закрываем приложение
+        if result == LOGIN_EXIT_CODE:
+            break
+
+        # Закрыл окно крестиком (Rejected) или не вошёл
+        if result != LoginDialog.DialogCode.Accepted or login.user is None:
             break
 
         logged_out = False
@@ -89,6 +96,7 @@ def _run_app(app: QApplication, db: Database):
         if not logged_out:
             # Пользователь закрыл окно крестиком — выходим полностью
             break
+        # Иначе (logged_out=True) — цикл повторяется, показывается окно входа
 
 
 def main():
