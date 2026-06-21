@@ -11,7 +11,6 @@ from ui_tabs import (
 
 
 APP_TITLE = "ПракрикаП — Оптовая торговля"
-DB_PATH = "trade_store.db"
 
 
 class MainWindow(QMainWindow):
@@ -23,14 +22,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_TITLE)
         self.resize(1100, 700)
 
-        # Central QTabWidget
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
 
-        # Add tabs — each receives the same shared Database instance
         tabs.addTab(ProductsTab(db), "Товары")
-        tabs.addTab(OrdersTab(db), "Заказы")
-        tabs.addTab(ClientsTab(db), "Клиенты")
+        tabs.addTab(OrdersTab(db),   "Заказы")
+        tabs.addTab(ClientsTab(db),  "Клиенты")
         tabs.addTab(SuppliersTab(db), "Поставщики")
         tabs.addTab(CategoriesTab(db), "Категории")
 
@@ -41,7 +38,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    db = Database(DB_PATH)
+    db = Database()          # настройки читаются из DB_CONFIG в database.py
     w = MainWindow(db)
     w.show()
     sys.exit(app.exec())
