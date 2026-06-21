@@ -69,7 +69,6 @@ class ProductsTab(BaseTab):
                "Зарезерв. (акт.)", "Свободно", "Категория", "Поставщик"]
 
     def load(self):
-        # Зарезервировано = только позиции в АКТИВНЫХ заказах
         active_ph = ','.join(f"'{s}'" for s in ACTIVE_STATUSES)
         rows = self.db.fetchall(
             f"SELECT p.id, p.name, p.sku, p.price, p.stock, "
@@ -129,9 +128,12 @@ class ProductsTab(BaseTab):
 class OrdersTab(QWidget):
     HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма", "Позиций"]
 
-    def __init__(self, db):
+    def __init__(self, db, on_products_changed=None):
         super().__init__()
         self.db = db
+        # Колбэк, который вызывается после любого изменения заказа
+        self._on_products_changed = on_products_changed or (lambda: None)
+
         layout = QVBoxLayout(self)
         btn_bar = QHBoxLayout()
         self.btn_add  = QPushButton("+ Добавить")
@@ -177,10 +179,15 @@ class OrdersTab(QWidget):
             for c, val in enumerate(row):
                 self.table.setItem(r, c, QTableWidgetItem(str(val if val is not None else "")))
 
+    def _refresh_all(self):
+        """Обновляет и таб заказов, и таб товаров."""
+        self.load()
+        self._on_products_changed()
+
     def on_add(self):
         dlg = OrderDialog(self.db)
         if dlg.exec():
-            self.load()
+            self._refresh_all()
 
     def on_edit(self):
         rid = self._selected_id()
@@ -190,7 +197,7 @@ class OrdersTab(QWidget):
         if row:
             dlg = OrderDialog(self.db, row)
             if dlg.exec():
-                self.load()
+                self._refresh_all()
 
     def on_delete(self):
         rid = self._selected_id()
@@ -202,7 +209,7 @@ class OrdersTab(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             self.db.delete_order(rid)
-            self.load()
+            self._refresh_all()
 
     def on_view(self):
         rid = self._selected_id()

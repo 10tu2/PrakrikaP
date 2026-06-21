@@ -26,11 +26,15 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
 
-        tabs.addTab(ProductsTab(db),   "Товары")
-        tabs.addTab(OrdersTab(db),     "Заказы")
-        tabs.addTab(ClientsTab(db),    "Клиенты")
-        tabs.addTab(SuppliersTab(db),  "Поставщики")
-        tabs.addTab(CategoriesTab(db), "Категории")
+        products_tab = ProductsTab(db)
+        # Передаём колбэк обновления таба Товаров в таб Заказов
+        orders_tab = OrdersTab(db, on_products_changed=products_tab.load)
+
+        tabs.addTab(products_tab,          "Товары")
+        tabs.addTab(orders_tab,            "Заказы")
+        tabs.addTab(ClientsTab(db),        "Клиенты")
+        tabs.addTab(SuppliersTab(db),      "Поставщики")
+        tabs.addTab(CategoriesTab(db),     "Категории")
 
     def closeEvent(self, event):
         self.db.close()
