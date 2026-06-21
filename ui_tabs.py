@@ -66,7 +66,7 @@ class BaseTab(QWidget):
 # ----------------------------------------------------------------------
 class ProductsTab(BaseTab):
     HEADERS = ["ID", "Название", "Артикул", "Цена", "Остаток (физ.)",
-               "Зарезерв. (акт.)", "Свободно", "Категория", "Поставщик"]
+               "Зарезерв. (акт.)", "Категория", "Поставщик"]
 
     def load(self):
         active_ph = ','.join(f"'{s}'" for s in ACTIVE_STATUSES)
@@ -75,9 +75,6 @@ class ProductsTab(BaseTab):
             f"COALESCE((SELECT SUM(oi.qty) FROM order_items oi "
             f"          JOIN orders o ON o.id=oi.order_id "
             f"          WHERE oi.product_id=p.id AND o.status IN ({active_ph})),0) AS reserved, "
-            f"p.stock - COALESCE((SELECT SUM(oi.qty) FROM order_items oi "
-            f"                     JOIN orders o ON o.id=oi.order_id "
-            f"                     WHERE oi.product_id=p.id AND o.status IN ({active_ph})),0) AS free_stock, "
             f"COALESCE(c.name, '') AS cat, COALESCE(s.name, '') AS sup "
             f"FROM products p "
             f"LEFT JOIN categories c ON c.id = p.category_id "
@@ -131,7 +128,6 @@ class OrdersTab(QWidget):
     def __init__(self, db, on_products_changed=None):
         super().__init__()
         self.db = db
-        # Колбэк, который вызывается после любого изменения заказа
         self._on_products_changed = on_products_changed or (lambda: None)
 
         layout = QVBoxLayout(self)
