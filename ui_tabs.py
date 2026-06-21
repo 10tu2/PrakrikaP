@@ -3,12 +3,11 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView,
     QLabel
 )
-from PyQt6.QtCore import Qt
 from dialogs import (
     ProductDialog, OrderDialog, ClientDialog,
-    SupplierDialog, CategoryDialog, ViewOrderDialog
+    SupplierDialog, CategoryDialog, ViewOrderDialog, UserDialog
 )
-from database import ACTIVE_STATUSES
+from database import ACTIVE_STATUSES, ROLE_ADMIN
 
 
 class BaseTab(QWidget):
@@ -75,28 +74,25 @@ class ProductsTab(BaseTab):
             f"COALESCE((SELECT SUM(oi.qty) FROM order_items oi "
             f"          JOIN orders o ON o.id=oi.order_id "
             f"          WHERE oi.product_id=p.id AND o.status IN ({active_ph})),0) AS reserved, "
-            f"COALESCE(c.name, '') AS cat, COALESCE(s.name, '') AS sup "
+            f"COALESCE(c.name,'') AS cat, COALESCE(s.name,'') AS sup "
             f"FROM products p "
-            f"LEFT JOIN categories c ON c.id = p.category_id "
-            f"LEFT JOIN suppliers s ON s.id = p.supplier_id "
+            f"LEFT JOIN categories c ON c.id=p.category_id "
+            f"LEFT JOIN suppliers s ON s.id=p.supplier_id "
             f"ORDER BY p.name"
         )
         self._fill_table(self.HEADERS, rows)
 
     def on_add(self):
-        dlg = ProductDialog(self.db)
-        if dlg.exec():
+        if ProductDialog(self.db).exec():
             self.load()
 
     def on_edit(self):
         rid = self.selected_id()
         if rid is None:
             return
-        row = self.db.fetchone("SELECT * FROM products WHERE id = ?", (rid,))
-        if row:
-            dlg = ProductDialog(self.db, row)
-            if dlg.exec():
-                self.load()
+        row = self.db.fetchone("SELECT * FROM products WHERE id=?", (rid,))
+        if row and ProductDialog(self.db, row).exec():
+            self.load()
 
     def on_delete(self):
         rid = self.selected_id()
@@ -104,18 +100,13 @@ class ProductsTab(BaseTab):
             return
         reserved = self.db.get_reserved_stock(rid)
         if reserved > 0:
-            QMessageBox.warning(
-                self, "Нельзя удалить",
-                f"Товар #{rid} зарезервирован в {reserved} шт. в активных заказах.\n"
-                f"Сначала удалите или завершите связанные заказы."
-            )
+            QMessageBox.warning(self, "Нельзя удалить",
+                f"Товар #{rid} зарезервирован ({reserved} шт.) в активных заказах.")
             return
-        if QMessageBox.question(
-            self, "Удалить товар",
-            f"Удалить товар #{rid}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        if QMessageBox.question(self, "Удалить товар", f"Удалить товар #{rid}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM products WHERE id = ?", (rid,))
+            self.db.execute("DELETE FROM products WHERE id=?", (rid,))
             self.load()
 
 
@@ -129,7 +120,6 @@ class OrdersTab(QWidget):
         super().__init__()
         self.db = db
         self._on_products_changed = on_products_changed or (lambda: None)
-
         layout = QVBoxLayout(self)
         btn_bar = QHBoxLayout()
         self.btn_add  = QPushButton("+ Добавить")
@@ -164,8 +154,7 @@ class OrdersTab(QWidget):
             "SELECT o.id, COALESCE(c.name,'') AS client, "
             "o.date, o.status, o.total, "
             "(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id=o.id) AS items "
-            "FROM orders o "
-            "LEFT JOIN clients c ON c.id = o.client_id "
+            "FROM orders o LEFT JOIN clients c ON c.id=o.client_id "
             "ORDER BY o.date DESC, o.id DESC"
         )
         self.table.setColumnCount(len(self.HEADERS))
@@ -176,33 +165,28 @@ class OrdersTab(QWidget):
                 self.table.setItem(r, c, QTableWidgetItem(str(val if val is not None else "")))
 
     def _refresh_all(self):
-        """Обновляет и таб заказов, и таб товаров."""
         self.load()
         self._on_products_changed()
 
     def on_add(self):
-        dlg = OrderDialog(self.db)
-        if dlg.exec():
+        if OrderDialog(self.db).exec():
             self._refresh_all()
 
     def on_edit(self):
         rid = self._selected_id()
         if rid is None:
             return
-        row = self.db.fetchone("SELECT * FROM orders WHERE id = ?", (rid,))
-        if row:
-            dlg = OrderDialog(self.db, row)
-            if dlg.exec():
-                self._refresh_all()
+        row = self.db.fetchone("SELECT * FROM orders WHERE id=?", (rid,))
+        if row and OrderDialog(self.db, row).exec():
+            self._refresh_all()
 
     def on_delete(self):
         rid = self._selected_id()
         if rid is None:
             return
-        if QMessageBox.question(
-            self, "Удалить заказ",
-            f"Удалить заказ #{rid}? Остаток товаров будет восстановлен (если заказ был активным).",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        if QMessageBox.question(self, "Удалить заказ",
+                f"Удалить заказ #{rid}? Остаток товаров будет восстановлен (если заказ активный).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
             self.db.delete_order(rid)
             self._refresh_all()
@@ -211,8 +195,7 @@ class OrdersTab(QWidget):
         rid = self._selected_id()
         if rid is None:
             return
-        dlg = ViewOrderDialog(self.db, rid, self)
-        dlg.exec()
+        ViewOrderDialog(self.db, rid, self).exec()
 
 
 # ----------------------------------------------------------------------
@@ -226,26 +209,21 @@ class ClientsTab(BaseTab):
         self._fill_table(self.HEADERS, rows)
 
     def on_add(self):
-        dlg = ClientDialog(self.db)
-        if dlg.exec(): self.load()
+        if ClientDialog(self.db).exec(): self.load()
 
     def on_edit(self):
         rid = self.selected_id()
         if rid is None: return
-        row = self.db.fetchone("SELECT * FROM clients WHERE id = ?", (rid,))
-        if row:
-            dlg = ClientDialog(self.db, row)
-            if dlg.exec(): self.load()
+        row = self.db.fetchone("SELECT * FROM clients WHERE id=?", (rid,))
+        if row and ClientDialog(self.db, row).exec(): self.load()
 
     def on_delete(self):
         rid = self.selected_id()
         if rid is None: return
-        if QMessageBox.question(
-            self, "Удалить клиента",
-            f"Удалить клиента #{rid}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        if QMessageBox.question(self, "Удалить клиента", f"Удалить клиента #{rid}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM clients WHERE id = ?", (rid,))
+            self.db.execute("DELETE FROM clients WHERE id=?", (rid,))
             self.load()
 
 
@@ -260,26 +238,21 @@ class SuppliersTab(BaseTab):
         self._fill_table(self.HEADERS, rows)
 
     def on_add(self):
-        dlg = SupplierDialog(self.db)
-        if dlg.exec(): self.load()
+        if SupplierDialog(self.db).exec(): self.load()
 
     def on_edit(self):
         rid = self.selected_id()
         if rid is None: return
-        row = self.db.fetchone("SELECT * FROM suppliers WHERE id = ?", (rid,))
-        if row:
-            dlg = SupplierDialog(self.db, row)
-            if dlg.exec(): self.load()
+        row = self.db.fetchone("SELECT * FROM suppliers WHERE id=?", (rid,))
+        if row and SupplierDialog(self.db, row).exec(): self.load()
 
     def on_delete(self):
         rid = self.selected_id()
         if rid is None: return
-        if QMessageBox.question(
-            self, "Удалить поставщика",
-            f"Удалить поставщика #{rid}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        if QMessageBox.question(self, "Удалить поставщика", f"Удалить поставщика #{rid}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM suppliers WHERE id = ?", (rid,))
+            self.db.execute("DELETE FROM suppliers WHERE id=?", (rid,))
             self.load()
 
 
@@ -294,24 +267,68 @@ class CategoriesTab(BaseTab):
         self._fill_table(self.HEADERS, rows)
 
     def on_add(self):
-        dlg = CategoryDialog(self.db)
-        if dlg.exec(): self.load()
+        if CategoryDialog(self.db).exec(): self.load()
 
     def on_edit(self):
         rid = self.selected_id()
         if rid is None: return
-        row = self.db.fetchone("SELECT * FROM categories WHERE id = ?", (rid,))
-        if row:
-            dlg = CategoryDialog(self.db, row)
-            if dlg.exec(): self.load()
+        row = self.db.fetchone("SELECT * FROM categories WHERE id=?", (rid,))
+        if row and CategoryDialog(self.db, row).exec(): self.load()
 
     def on_delete(self):
         rid = self.selected_id()
         if rid is None: return
-        if QMessageBox.question(
-            self, "Удалить категорию",
-            f"Удалить категорию #{rid}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        if QMessageBox.question(self, "Удалить категорию", f"Удалить категорию #{rid}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
-            self.db.execute("DELETE FROM categories WHERE id = ?", (rid,))
+            self.db.execute("DELETE FROM categories WHERE id=?", (rid,))
+            self.load()
+
+
+# ----------------------------------------------------------------------
+# UsersTab  (только для администратора)
+# ----------------------------------------------------------------------
+class UsersTab(BaseTab):
+    HEADERS = ["ID", "Логин", "Полное имя", "Роль"]
+
+    def __init__(self, db, current_user_id: int):
+        self._current_user_id = current_user_id
+        super().__init__(db, title="")
+
+    def load(self):
+        role_labels = {'admin': 'Администратор', 'employee': 'Сотрудник'}
+        raw = self.db.get_users()
+        rows = [(r["id"], r["username"], r["full_name"],
+                 role_labels.get(r["role"], r["role"])) for r in raw]
+        self._fill_table(self.HEADERS, rows)
+
+    def on_add(self):
+        if UserDialog(self.db).exec(): self.load()
+
+    def on_edit(self):
+        rid = self.selected_id()
+        if rid is None: return
+        row = self.db.fetchone("SELECT * FROM users WHERE id=?", (rid,))
+        if row and UserDialog(self.db, row).exec(): self.load()
+
+    def on_delete(self):
+        rid = self.selected_id()
+        if rid is None: return
+        if rid == self._current_user_id:
+            QMessageBox.warning(self, "Нельзя удалить", "Нельзя удалить собственную учётную запись.")
+            return
+        # Убеждаемся, что останется хотя бы один администратор
+        row = self.db.fetchone("SELECT role FROM users WHERE id=?", (rid,))
+        if row and row["role"] == ROLE_ADMIN:
+            count = self.db.fetchone(
+                "SELECT COUNT(*) AS c FROM users WHERE role=?", (ROLE_ADMIN,)
+            )["c"]
+            if count <= 1:
+                QMessageBox.warning(self, "Нельзя удалить",
+                    "В системе должен оставаться хотя бы один администратор.")
+                return
+        if QMessageBox.question(self, "Удалить пользователя", f"Удалить пользователя #{rid}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) == QMessageBox.StandardButton.Yes:
+            self.db.delete_user(rid)
             self.load()
