@@ -11,6 +11,7 @@ from ui_tabs import (
 
 
 APP_TITLE = "ПракрикаП — Оптовая торговля"
+DB_PATH = "trade_store.db"
 
 
 class MainWindow(QMainWindow):
@@ -25,10 +26,10 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
 
-        tabs.addTab(ProductsTab(db), "Товары")
-        tabs.addTab(OrdersTab(db),   "Заказы")
-        tabs.addTab(ClientsTab(db),  "Клиенты")
-        tabs.addTab(SuppliersTab(db), "Поставщики")
+        tabs.addTab(ProductsTab(db),   "Товары")
+        tabs.addTab(OrdersTab(db),     "Заказы")
+        tabs.addTab(ClientsTab(db),    "Клиенты")
+        tabs.addTab(SuppliersTab(db),  "Поставщики")
         tabs.addTab(CategoriesTab(db), "Категории")
 
     def closeEvent(self, event):
@@ -38,7 +39,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    db = Database()          # настройки читаются из DB_CONFIG в database.py
+    db = Database(DB_PATH)
     w = MainWindow(db)
     w.show()
     sys.exit(app.exec())

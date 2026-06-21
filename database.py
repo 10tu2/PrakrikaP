@@ -1,86 +1,123 @@
-import mysql.connector
-from mysql.connector import Error
+import sqlite3
 
-# ---------------------------------------------------------
-# Fill in your MySQL connection details here
-# or pass them via environment variables / config file.
-# ---------------------------------------------------------
-DB_CONFIG = {
-    "host":     "localhost",
-    "port":     3306,
-    "user":     "root",       # <-- your MySQL user
-    "password": "",           # <-- your MySQL password
-    "database": "prakriap",   # <-- your database name
-    "charset":  "utf8mb4",
-    "use_unicode": True,
-    "autocommit": False,
-}
-
-
-class _Row(dict):
-    """Dict subclass that also supports attribute-style access (row["key"] and row.key)."""
-    def __getattr__(self, item):
-        try:
-            return self[item]
-        except KeyError:
-            raise AttributeError(item)
-
+DB_FILE = "trade_store.db"
 
 class Database:
-    """MySQL layer for wholesale hardware & plumbing trade app."""
+    """SQLite layer for wholesale hardware & plumbing trade app."""
 
-    def __init__(self, config: dict = None):
-        cfg = config or DB_CONFIG
-        self.conn = mysql.connector.connect(**cfg)
-        self.conn.autocommit = False
-
-    # ------------------------------------------------------------------ internal
-    def _cursor(self):
-        """Return a fresh cursor; reconnect if the connection dropped."""
-        if not self.conn.is_connected():
-            self.conn.reconnect(attempts=3, delay=1)
-        return self.conn.cursor(dictionary=True)
-
-    def _to_rows(self, raw):
-        """Convert list of dicts returned by mysql-connector into _Row objects."""
-        return [_Row(r) for r in raw]
-
-    # ------------------------------------------------------------------ public API
-    def execute(self, sql: str, params: tuple = ()) -> int:
-        """Execute a DML statement, commit and return lastrowid."""
-        # MySQL uses %s placeholders, not ?
-        sql = sql.replace("?", "%s")
-        cur = self._cursor()
-        cur.execute(sql, params)
+    def __init__(self, path: str = DB_FILE):
+        self.path = path
+        self.conn = sqlite3.connect(self.path)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.commit()
-        last_id = cur.lastrowid
-        cur.close()
-        return last_id
+        self._create_tables()
+        self._migrate()
+
+    def _create_tables(self):
+        stmts = [
+            """CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )""",
+            """CREATE TABLE IF NOT EXISTS suppliers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                contact TEXT,
+                phone TEXT,
+                address TEXT
+            )""",
+            """CREATE TABLE IF NOT EXISTS clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                contact TEXT,
+                phone TEXT,
+                address TEXT
+            )""",
+            """CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sku TEXT,
+                price REAL DEFAULT 0,
+                stock INTEGER DEFAULT 0,
+                category_id INTEGER,
+                supplier_id INTEGER
+            )""",
+            """CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER,
+                date TEXT,
+                status TEXT DEFAULT 'новый',
+                total REAL DEFAULT 0
+            )""",
+            """CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER,
+                product_id INTEGER,
+                qty INTEGER DEFAULT 1,
+                price REAL DEFAULT 0
+            )""",
+        ]
+        for stmt in stmts:
+            self.conn.execute(stmt)
+        self.conn.commit()
+
+    def _migrate(self):
+        def has_column(table: str, col: str) -> bool:
+            row = self.conn.execute(
+                "SELECT 1 FROM pragma_table_info(?) WHERE name=?",
+                (table, col)
+            ).fetchone()
+            return row is not None
+
+        def add_col(table: str, col: str, sql: str):
+            if not has_column(table, col):
+                try:
+                    self.conn.execute(sql)
+                    self.conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+
+        add_col("products", "sku",         "ALTER TABLE products ADD COLUMN sku TEXT")
+        add_col("products", "price",        "ALTER TABLE products ADD COLUMN price REAL DEFAULT 0")
+        add_col("products", "stock",        "ALTER TABLE products ADD COLUMN stock INTEGER DEFAULT 0")
+        add_col("products", "category_id",  "ALTER TABLE products ADD COLUMN category_id INTEGER")
+        add_col("products", "supplier_id",  "ALTER TABLE products ADD COLUMN supplier_id INTEGER")
+
+        add_col("orders", "client_id", "ALTER TABLE orders ADD COLUMN client_id INTEGER")
+        add_col("orders", "date",      "ALTER TABLE orders ADD COLUMN date TEXT")
+        add_col("orders", "status",    "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'новый'")
+        add_col("orders", "total",     "ALTER TABLE orders ADD COLUMN total REAL DEFAULT 0")
+
+        add_col("order_items", "order_id",   "ALTER TABLE order_items ADD COLUMN order_id INTEGER")
+        add_col("order_items", "product_id", "ALTER TABLE order_items ADD COLUMN product_id INTEGER")
+        add_col("order_items", "qty",        "ALTER TABLE order_items ADD COLUMN qty INTEGER DEFAULT 1")
+        add_col("order_items", "price",      "ALTER TABLE order_items ADD COLUMN price REAL DEFAULT 0")
+
+        add_col("clients", "contact", "ALTER TABLE clients ADD COLUMN contact TEXT")
+        add_col("clients", "phone",   "ALTER TABLE clients ADD COLUMN phone TEXT")
+        add_col("clients", "address", "ALTER TABLE clients ADD COLUMN address TEXT")
+
+        add_col("suppliers", "contact", "ALTER TABLE suppliers ADD COLUMN contact TEXT")
+        add_col("suppliers", "phone",   "ALTER TABLE suppliers ADD COLUMN phone TEXT")
+        add_col("suppliers", "address", "ALTER TABLE suppliers ADD COLUMN address TEXT")
+
+    def execute(self, sql: str, params: tuple = ()) -> int:
+        cur = self.conn.execute(sql, params)
+        self.conn.commit()
+        return cur.lastrowid
 
     def fetchone(self, sql: str, params: tuple = ()):
-        """Return a single _Row or None."""
-        sql = sql.replace("?", "%s")
-        cur = self._cursor()
-        cur.execute(sql, params)
-        row = cur.fetchone()
-        cur.close()
-        return _Row(row) if row else None
+        return self.conn.execute(sql, params).fetchone()
 
     def fetchall(self, sql: str, params: tuple = ()):
-        """Return a list of _Row objects."""
-        sql = sql.replace("?", "%s")
-        cur = self._cursor()
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close()
-        return self._to_rows(rows)
+        return self.conn.execute(sql, params).fetchall()
 
-    # ------------------------------------------------------------------ business logic
     def update_order_status(self, oid: int, status: str):
-        self.execute("UPDATE orders SET status=%s WHERE id=%s", (status, oid))
+        self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
 
     def delete_order(self, oid: int):
-        self.execute("DELETE FROM orders WHERE id=%s", (oid,))
+        self.execute("DELETE FROM orders WHERE id=?", (oid,))
 
     def get_order_items(self, oid: int):
         sql = """
@@ -91,32 +128,28 @@ class Database:
                    oi.qty * oi.price AS subtotal
             FROM order_items oi
             LEFT JOIN products p ON p.id = oi.product_id
-            WHERE oi.order_id = %s
+            WHERE oi.order_id = ?
         """
         return self.fetchall(sql, (oid,))
 
     def add_order_item(self, order_id: int, product_id: int, qty: int, price: float) -> int:
         row_id = self.execute(
-            "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?,?,?,?)",
             (order_id, product_id, qty, price),
         )
         self._recalc_order(order_id)
         return row_id
 
     def delete_order_item(self, item_id: int, order_id: int):
-        self.execute("DELETE FROM order_items WHERE id=%s", (item_id,))
+        self.execute("DELETE FROM order_items WHERE id=?", (item_id,))
         self._recalc_order(order_id)
 
     def _recalc_order(self, order_id: int):
         row = self.fetchone(
-            "SELECT COALESCE(SUM(qty * price), 0) AS total FROM order_items WHERE order_id=%s",
+            "SELECT COALESCE(SUM(qty * price), 0) AS total FROM order_items WHERE order_id=?",
             (order_id,),
         )
-        self.execute(
-            "UPDATE orders SET total=%s WHERE id=%s",
-            (float(row["total"]), order_id),
-        )
+        self.execute("UPDATE orders SET total=? WHERE id=?", (row["total"], order_id))
 
     def close(self):
-        if self.conn.is_connected():
-            self.conn.close()
+        self.conn.close()
