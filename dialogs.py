@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
     QSpinBox, QComboBox, QDialogButtonBox, QVBoxLayout,
-    QMessageBox
+    QMessageBox, QPushButton, QLabel
 )
+from PyQt6.QtCore import Qt
 
 class _BaseDialog(QDialog):
     """Base dialog with OK / Cancel buttons and a QFormLayout."""
@@ -194,7 +195,7 @@ class CategoryDialog(_BaseDialog):
                 (self.f_name.text(),),
             )
         super().accept()
-        
+
 
 # ----------------------------------------------------------------------
 # OrderDialog
@@ -250,3 +251,73 @@ class OrderDialog(_BaseDialog):
                 (client_id, self.f_date.text(), self.f_status.currentText(), self.f_total.value()),
             )
         super().accept()
+
+
+# ----------------------------------------------------------------------
+# LoginDialog
+# ----------------------------------------------------------------------
+class LoginDialog(QDialog):
+    def __init__(self, db, parent=None):
+        super().__init__(parent)
+        self.db   = db
+        self.user = None
+        self.setWindowTitle("Вход в систему")
+        self.setFixedWidth(340)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(28, 28, 28, 24)
+
+        title = QLabel("<h2 style='margin:0'>ПракрикаП</h2><p style='color:#6A7290;margin:4px 0 0 0'>Оптовая торговля</p>")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        layout.addSpacing(8)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        self.f_user = QLineEdit()
+        self.f_user.setPlaceholderText("Введите логин")
+        self.f_pass = QLineEdit()
+        self.f_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.f_pass.setPlaceholderText("Введите пароль")
+        self.f_pass.returnPressed.connect(self._try_login)
+        form.addRow("Логин:",  self.f_user)
+        form.addRow("Пароль:", self.f_pass)
+        layout.addLayout(form)
+
+        self.lbl_error = QLabel("")
+        self.lbl_error.setStyleSheet("color: #E74C3C; font-size: 12px;")
+        self.lbl_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lbl_error)
+
+        btn_login = QPushButton("  Войти")
+        btn_login.setObjectName("btn_login")
+        btn_login.setDefault(True)
+        btn_login.clicked.connect(self._try_login)
+        layout.addWidget(btn_login)
+
+        btn_exit = QPushButton("Выход")
+        btn_exit.setObjectName("btn_exit")
+        btn_exit.clicked.connect(self._on_exit)
+        layout.addWidget(btn_exit)
+
+    def _try_login(self):
+        username = self.f_user.text().strip()
+        password = self.f_pass.text()
+        if not username or not password:
+            self.lbl_error.setText("Введите логин и пароль.")
+            return
+        user = self.db.authenticate(username, password)
+        if user is None:
+            self.lbl_error.setText("Неверный логин или пароль.")
+            self.f_pass.clear()
+            self.f_pass.setFocus()
+            return
+        self.user = user
+        self.accept()
+
+    def _on_exit(self):
+        """Закрывает приложение полностью с экрана входа."""
+        self.user = None
+        self.reject()

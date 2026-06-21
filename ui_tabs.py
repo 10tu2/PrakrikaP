@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from dialogs import (
     ProductDialog, OrderDialog, ClientDialog,
-    SupplierDialog, CategoryDialog, ViewOrderDialog, UserDialog
+    SupplierDialog, CategoryDialog, UserDialog
 )
 from database import ACTIVE_STATUSES, ROLE_ADMIN
 
@@ -33,9 +33,9 @@ class BaseTab(QWidget):
             layout.addWidget(lbl)
         btn_bar = QHBoxLayout()
         btn_bar.setSpacing(6)
-        self.btn_add  = _btn("＋  Добавить",  "add",    "btn_add")
-        self.btn_edit = _btn("✎  Изменить",  "edit",   "btn_edit")
-        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
+        self.btn_add  = _btn("\uff0b  Добавить",  "add",    "btn_add")
+        self.btn_edit = _btn("\u270e  Изменить",  "edit",   "btn_edit")
+        self.btn_del  = _btn("\u2715  Удалить",   "delete", "btn_del")
         for b in (self.btn_add, self.btn_edit, self.btn_del):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
@@ -126,7 +126,7 @@ class ProductsTab(BaseTab):
 
 
 # ----------------------------------------------------------------------
-# OrdersTab  — порядок кнопок: Добавить | Изменить | Просмотр | Удалить
+# OrdersTab  — порядок кнопок: Добавить | Изменить | Удалить | Просмотр
 # ----------------------------------------------------------------------
 class OrdersTab(QWidget):
     HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма", "Позиций"]
@@ -140,11 +140,11 @@ class OrdersTab(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         btn_bar = QHBoxLayout()
         btn_bar.setSpacing(6)
-        self.btn_add  = _btn("＋  Добавить",  "add",    "btn_add")
-        self.btn_edit = _btn("✎  Изменить",  "edit",   "btn_edit")
-        self.btn_view = _btn("👁  Просмотр",  "view",   "btn_view")
-        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
-        for b in (self.btn_add, self.btn_edit, self.btn_view, self.btn_del):
+        self.btn_add  = _btn("\uff0b  Добавить",  "add",    "btn_add")
+        self.btn_edit = _btn("\u270e  Изменить",  "edit",   "btn_edit")
+        self.btn_del  = _btn("\u2715  Удалить",   "delete", "btn_del")
+        self.btn_view = _btn("\U0001f441  Просмотр",  "view",   "btn_view")
+        for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_view):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
@@ -215,6 +215,7 @@ class OrdersTab(QWidget):
         rid = self._selected_id()
         if rid is None:
             return
+        from dialogs import ViewOrderDialog
         ViewOrderDialog(self.db, rid, self).exec()
 
 
