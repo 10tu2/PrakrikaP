@@ -2,6 +2,13 @@ import sqlite3
 
 DB_FILE = "trade_store.db"
 
+# Статусы, при которых товар считается «зарезервированным» (ещё не списан окончательно)
+ACTIVE_STATUSES = ('новый', 'в обработке')
+# Статусы, при которых товар уже отгружен (позиции остаются в order_items для истории)
+COMPLETED_STATUS = 'выполнен'
+CANCELLED_STATUS = 'отменён'
+
+
 class Database:
     """SQLite layer for wholesale hardware & plumbing trade app."""
 
@@ -47,7 +54,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER,
                 date TEXT,
-                status TEXT DEFAULT '\u043d\u043e\u0432\u044b\u0439',
+                status TEXT DEFAULT 'новый',
                 total REAL DEFAULT 0
             )""",
             """CREATE TABLE IF NOT EXISTS order_items (
@@ -86,7 +93,7 @@ class Database:
 
         add_col("orders", "client_id", "ALTER TABLE orders ADD COLUMN client_id INTEGER")
         add_col("orders", "date",      "ALTER TABLE orders ADD COLUMN date TEXT")
-        add_col("orders", "status",    "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT '\u043d\u043e\u0432\u044b\u0439'")
+        add_col("orders", "status",    "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'новый'")
         add_col("orders", "total",     "ALTER TABLE orders ADD COLUMN total REAL DEFAULT 0")
 
         add_col("order_items", "order_id",   "ALTER TABLE order_items ADD COLUMN order_id INTEGER")
@@ -113,18 +120,87 @@ class Database:
     def fetchall(self, sql: str, params: tuple = ()):
         return self.conn.execute(sql, params).fetchall()
 
-    def update_order_status(self, oid: int, status: str):
-        self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
+    # ------------------------------------------------------------------
+    # Смена статуса заказа с корректировкой остатков
+    # ------------------------------------------------------------------
+    def update_order_status(self, oid: int, new_status: str):
+        """
+        Меняет статус заказа и корректирует stock:
+        - новый/в обработке  → без изменений (товар уже списан при добавлении позиций)
+        - выполнен           → товар уже списан, ничего не возвращаем; просто фиксируем статус
+        - отменён            → возвращаем кол-во в stock (если заказ был активным)
+        При переходе обратно из выполнен/отменён в активный — снова резервируем.
+        """
+        old_row = self.fetchone("SELECT status FROM orders WHERE id=?", (oid,))
+        if old_row is None:
+            return
+        old_status = old_row["status"]
+
+        if old_status == new_status:
+            return
+
+        items = self.fetchall(
+            "SELECT product_id, qty FROM order_items WHERE order_id=?", (oid,)
+        )
+
+        was_active = old_status in ACTIVE_STATUSES
+        was_completed = old_status == COMPLETED_STATUS
+        was_cancelled = old_status == CANCELLED_STATUS
+
+        is_active = new_status in ACTIVE_STATUSES
+        is_completed = new_status == COMPLETED_STATUS
+        is_cancelled = new_status == CANCELLED_STATUS
+
+        for it in items:
+            pid, qty = it["product_id"], it["qty"]
+            if pid is None:
+                continue
+
+            if was_active and is_cancelled:
+                # Возвращаем товар — заказ отменён
+                self.execute("UPDATE products SET stock = stock + ? WHERE id=?", (qty, pid))
+
+            elif was_active and is_completed:
+                # Товар уже списан из stock при создании позиции — ничего не делаем
+                pass
+
+            elif (was_cancelled or was_completed) and is_active:
+                # Возобновляем активный заказ — резервируем снова
+                stock = self.get_product_stock(pid)
+                if qty > stock:
+                    raise ValueError(
+                        f"Недостаточно товара (id={pid}) для возобновления заказа. "
+                        f"Доступно: {stock}, требуется: {qty}."
+                    )
+                self.execute("UPDATE products SET stock = stock - ? WHERE id=?", (qty, pid))
+
+            elif was_cancelled and is_completed:
+                # Из отменённого сразу в выполнен — резервируем и тут же «отгружаем» (net=0)
+                pass
+
+            elif was_completed and is_cancelled:
+                # Отменяем уже выполненный: возвращаем товар
+                self.execute("UPDATE products SET stock = stock + ? WHERE id=?", (qty, pid))
+
+        self.execute("UPDATE orders SET status=? WHERE id=?", (new_status, oid))
 
     def delete_order(self, oid: int):
-        """Delete order and restore product stock for all its items."""
-        items = self.fetchall("SELECT product_id, qty FROM order_items WHERE order_id=?", (oid,))
-        for it in items:
-            if it["product_id"] is not None:
-                self.execute(
-                    "UPDATE products SET stock = stock + ? WHERE id=?",
-                    (it["qty"], it["product_id"]),
-                )
+        """Delete order and restore product stock only if order was active."""
+        order = self.fetchone("SELECT status FROM orders WHERE id=?", (oid,))
+        if order is None:
+            return
+        status = order["status"]
+        items = self.fetchall(
+            "SELECT product_id, qty FROM order_items WHERE order_id=?", (oid,)
+        )
+        # Возвращаем сток только если заказ был активным (товар был заблокирован)
+        if status in ACTIVE_STATUSES:
+            for it in items:
+                if it["product_id"] is not None:
+                    self.execute(
+                        "UPDATE products SET stock = stock + ? WHERE id=?",
+                        (it["qty"], it["product_id"]),
+                    )
         self.execute("DELETE FROM order_items WHERE order_id=?", (oid,))
         self.execute("DELETE FROM orders WHERE id=?", (oid,))
 
@@ -143,20 +219,32 @@ class Database:
         return self.fetchall(sql, (oid,))
 
     def get_product_stock(self, product_id: int) -> int:
-        row = self.fetchone("SELECT COALESCE(stock, 0) AS stock FROM products WHERE id=?", (product_id,))
+        row = self.fetchone(
+            "SELECT COALESCE(stock, 0) AS stock FROM products WHERE id=?",
+            (product_id,)
+        )
         return int(row["stock"]) if row else 0
 
     def get_reserved_stock(self, product_id: int, exclude_order_id: int = None) -> int:
-        """Return total qty of product reserved across all active orders."""
+        """
+        Зарезервировано = кол-во в позициях АКТИВНЫХ заказов.
+        Выполненные/отменённые не считаются — товар уже либо списан, либо возвращён.
+        """
+        placeholders = ','.join(f"'{s}'" for s in ACTIVE_STATUSES)
         if exclude_order_id is not None:
             row = self.fetchone(
-                "SELECT COALESCE(SUM(qty), 0) AS res FROM order_items "
-                "WHERE product_id=? AND order_id != ?",
+                f"SELECT COALESCE(SUM(oi.qty), 0) AS res "
+                f"FROM order_items oi "
+                f"JOIN orders o ON o.id = oi.order_id "
+                f"WHERE oi.product_id=? AND oi.order_id != ? AND o.status IN ({placeholders})",
                 (product_id, exclude_order_id),
             )
         else:
             row = self.fetchone(
-                "SELECT COALESCE(SUM(qty), 0) AS res FROM order_items WHERE product_id=?",
+                f"SELECT COALESCE(SUM(oi.qty), 0) AS res "
+                f"FROM order_items oi "
+                f"JOIN orders o ON o.id = oi.order_id "
+                f"WHERE oi.product_id=? AND o.status IN ({placeholders})",
                 (product_id,),
             )
         return int(row["res"]) if row else 0
@@ -164,7 +252,7 @@ class Database:
     def add_order_item(self, order_id: int, product_id: int, qty: int, price: float) -> int:
         stock = self.get_product_stock(product_id)
         if qty > stock:
-            raise ValueError(f"\u041d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0442\u043e\u0432\u0430\u0440\u0430 \u043d\u0430 \u0441\u043a\u043b\u0430\u0434\u0435. \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {stock}.")
+            raise ValueError(f"Недостаточно товара на складе. Доступно: {stock}.")
         row_id = self.execute(
             "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?,?,?,?)",
             (order_id, product_id, qty, price),
@@ -174,12 +262,15 @@ class Database:
         return row_id
 
     def delete_order_item(self, item_id: int, order_id: int):
+        """Удаляет позицию заказа. Возвращает stock только если заказ активный."""
+        order = self.fetchone("SELECT status FROM orders WHERE id=?", (order_id,))
         item = self.fetchone("SELECT product_id, qty FROM order_items WHERE id=?", (item_id,))
         if item and item["product_id"] is not None:
-            self.execute(
-                "UPDATE products SET stock = stock + ? WHERE id=?",
-                (item["qty"], item["product_id"]),
-            )
+            if order and order["status"] in ACTIVE_STATUSES:
+                self.execute(
+                    "UPDATE products SET stock = stock + ? WHERE id=?",
+                    (item["qty"], item["product_id"]),
+                )
         self.execute("DELETE FROM order_items WHERE id=?", (item_id,))
         self._recalc_order(order_id)
 

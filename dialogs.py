@@ -5,7 +5,9 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QLabel, QMessageBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QRegularExpression
+from PyQt6.QtGui import QRegularExpressionValidator
+from database import ACTIVE_STATUSES
 
 _FORBIDDEN_RE = re.compile(r'[\x00-\x1f<>"\\]')
 
@@ -13,24 +15,64 @@ _FORBIDDEN_RE = re.compile(r'[\x00-\x1f<>"\\]')
 def _validate_text(value: str, field_label: str, required: bool = True) -> str | None:
     stripped = value.strip()
     if required and not stripped:
-        return f'\u041f\u043e\u043b\u0435 \u00ab{field_label}\u00bb \u043d\u0435 \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u043f\u0443\u0441\u0442\u044b\u043c.'
+        return f'Поле «{field_label}» не может быть пустым.'
     if stripped and _FORBIDDEN_RE.search(stripped):
-        return (f'\u041f\u043e\u043b\u0435 \u00ab{field_label}\u00bb \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u043d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0435 \u0441\u0438\u043c\u0432\u043e\u043b\u044b.\n'
-                f'\u0417\u0430\u043f\u0440\u0435\u0449\u0435\u043d\u044b: \u0443\u043f\u0440\u0430\u0432\u043b\u044f\u044e\u0449\u0438\u0435 \u0441\u0438\u043c\u0432\u043e\u043b\u044b, < > " \\')
+        return (f'Поле «{field_label}» содержит недопустимые символы.\n'
+                f'Запрещены: управляющие символы, < > " \\')
     return None
 
 
 def _validate_date(value: str) -> str | None:
     stripped = value.strip()
     if not stripped:
-        return '\u041f\u043e\u043b\u0435 \u00ab\u0414\u0430\u0442\u0430\u00bb \u043d\u0435 \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u043f\u0443\u0441\u0442\u044b\u043c.'
+        return 'Поле «Дата» не может быть пустым.'
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stripped):
-        return '\u041f\u043e\u043b\u0435 \u00ab\u0414\u0430\u0442\u0430\u00bb \u0434\u043e\u043b\u0436\u043d\u043e \u0431\u044b\u0442\u044c \u0432 \u0444\u043e\u0440\u043c\u0430\u0442\u0435 \u0413\u0413\u0413\u0413-\u041c\u041c-\u0414\u0414 (\u043d\u0430\u043f\u0440\u0438\u043c\u0435\u0440, 2025-06-21).'
+        return 'Поле «Дата» должно быть в формате ГГГГ-ММ-ДД (например, 2025-06-21).'
     return None
 
 
 def _show_error(parent, message: str):
-    QMessageBox.warning(parent, '\u041e\u0448\u0438\u0431\u043a\u0430 \u0432\u0432\u043e\u0434\u0430', message)
+    QMessageBox.warning(parent, 'Ошибка ввода', message)
+
+
+def _make_phone_field() -> QLineEdit:
+    """QLineEdit с валидатором для телефонного номера."""
+    f = QLineEdit()
+    f.setPlaceholderText("+7 (999) 123-45-67")
+    f.setMaxLength(20)
+    validator = QRegularExpressionValidator(
+        QRegularExpression(r'[\d\s\+\-\(\)\.]*')
+    )
+    f.setValidator(validator)
+    return f
+
+
+def _make_sku_field() -> QLineEdit:
+    """QLineEdit для артикула — латиница, цифры, дефис, точка, слэш."""
+    f = QLineEdit()
+    f.setPlaceholderText("ABC-001")
+    f.setMaxLength(50)
+    validator = QRegularExpressionValidator(
+        QRegularExpression(r'[A-Za-z0-9\-_\./ ]*')
+    )
+    f.setValidator(validator)
+    return f
+
+
+def _make_date_field() -> QLineEdit:
+    """QLineEdit с маской даты ГГГГ-ММ-ДД."""
+    f = QLineEdit()
+    f.setInputMask("9999-99-99;_")
+    f.setPlaceholderText("ГГГГ-ММ-ДД")
+    f.setMaxLength(10)
+    return f
+
+
+def _make_name_field(max_length: int = 150) -> QLineEdit:
+    """Обычное текстовое поле с ограничением длины."""
+    f = QLineEdit()
+    f.setMaxLength(max_length)
+    return f
 
 
 class _BaseDialog(QDialog):
@@ -53,24 +95,25 @@ class _BaseDialog(QDialog):
 # ----------------------------------------------------------------------
 class ProductDialog(_BaseDialog):
     def __init__(self, db, row=None):
-        super().__init__("\u0422\u043e\u0432\u0430\u0440")
+        super().__init__("Товар")
         self.db = db
         self.row = row
-        self.f_name = QLineEdit()
-        self.f_sku = QLineEdit()
+        self.f_name = _make_name_field()
+        self.f_sku = _make_sku_field()
         self.f_price = QDoubleSpinBox()
         self.f_price.setDecimals(2)
         self.f_price.setMaximum(9999999.99)
+        self.f_price.setGroupSeparatorShown(True)
         self.f_stock = QSpinBox()
         self.f_stock.setMaximum(999999)
+        self.f_stock.setGroupSeparatorShown(True)
 
-        # If editing, compute reserved qty so user can't set stock below it
         self._reserved = 0
         if row is not None:
             self._reserved = db.get_reserved_stock(row["id"])
             self.f_stock.setMinimum(self._reserved)
-            tip = (f"\u041c\u0438\u043d\u0438\u043c\u0430\u043b\u044c\u043d\u043e \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0439 \u043e\u0441\u0442\u0430\u0442\u043e\u043a: {self._reserved} "
-                   f"(\u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0437\u0430\u043a\u0430\u0437\u0430\u0445)")
+            tip = (f"Минимально допустимый остаток: {self._reserved} "
+                   f"(зарезервировано в активных заказах)")
             self.f_stock.setToolTip(tip)
 
         self.f_cat = QComboBox()
@@ -85,12 +128,12 @@ class ProductDialog(_BaseDialog):
         self.f_sup.addItems([r[1] for r in sups])
         if not self._sup_ids:
             self.f_sup.setEnabled(False)
-        self.form.addRow("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", self.f_name)
-        self.form.addRow("\u0410\u0440\u0442\u0438\u043a\u0443\u043b", self.f_sku)
-        self.form.addRow("\u0426\u0435\u043d\u0430", self.f_price)
-        self.form.addRow("\u041e\u0441\u0442\u0430\u0442\u043e\u043a", self.f_stock)
-        self.form.addRow("\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f", self.f_cat)
-        self.form.addRow("\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a", self.f_sup)
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Артикул", self.f_sku)
+        self.form.addRow("Цена", self.f_price)
+        self.form.addRow("Остаток", self.f_stock)
+        self.form.addRow("Категория", self.f_cat)
+        self.form.addRow("Поставщик", self.f_sup)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -113,8 +156,8 @@ class ProductDialog(_BaseDialog):
 
     def accept(self):
         for err in [
-            _validate_text(self.f_name.text(), '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435'),
-            _validate_text(self.f_sku.text(), '\u0410\u0440\u0442\u0438\u043a\u0443\u043b'),
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_sku.text(), 'Артикул'),
         ]:
             if err:
                 _show_error(self, err)
@@ -124,7 +167,8 @@ class ProductDialog(_BaseDialog):
         if new_stock < self._reserved:
             _show_error(
                 self,
-                f'\u041d\u0435\u043b\u044c\u0437\u044f \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0441\u0442\u0430\u0442\u043e\u043a \u043c\u0435\u043d\u044c\u0448\u0435 {self._reserved} — \u044d\u0442\u043e \u043a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u0443\u0436\u0435 \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0437\u0430\u043a\u0430\u0437\u0430\u0445.'
+                f'Нельзя установить остаток меньше {self._reserved} — '
+                f'это количество уже зарезервировано в активных заказах.'
             )
             return
 
@@ -155,17 +199,17 @@ class ProductDialog(_BaseDialog):
 # ----------------------------------------------------------------------
 class ClientDialog(_BaseDialog):
     def __init__(self, db, row=None):
-        super().__init__("\u041a\u043b\u0438\u0435\u043d\u0442")
+        super().__init__("Клиент")
         self.db = db
         self.row = row
-        self.f_name = QLineEdit()
-        self.f_contact = QLineEdit()
-        self.f_phone = QLineEdit()
-        self.f_address = QLineEdit()
-        self.form.addRow("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", self.f_name)
-        self.form.addRow("\u041a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u043e\u0435 \u043b\u0438\u0446\u043e", self.f_contact)
-        self.form.addRow("\u0422\u0435\u043b\u0435\u0444\u043e\u043d", self.f_phone)
-        self.form.addRow("\u0410\u0434\u0440\u0435\u0441", self.f_address)
+        self.f_name = _make_name_field()
+        self.f_contact = _make_name_field(100)
+        self.f_phone = _make_phone_field()
+        self.f_address = _make_name_field(250)
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Контактное лицо", self.f_contact)
+        self.form.addRow("Телефон", self.f_phone)
+        self.form.addRow("Адрес", self.f_address)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -178,18 +222,18 @@ class ClientDialog(_BaseDialog):
 
     def accept(self):
         for err in [
-            _validate_text(self.f_name.text(), '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435'),
-            _validate_text(self.f_contact.text(), '\u041a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u043e\u0435 \u043b\u0438\u0446\u043e', required=False),
-            _validate_text(self.f_phone.text(), '\u0422\u0435\u043b\u0435\u0444\u043e\u043d', required=False),
-            _validate_text(self.f_address.text(), '\u0410\u0434\u0440\u0435\u0441', required=False),
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_contact.text(), 'Контактное лицо', required=False),
+            _validate_text(self.f_phone.text(), 'Телефон', required=False),
+            _validate_text(self.f_address.text(), 'Адрес', required=False),
         ]:
             if err:
                 _show_error(self, err)
                 return
         phone = self.f_phone.text().strip()
         if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
-            _show_error(self, '\u041f\u043e\u043b\u0435 \u00ab\u0422\u0435\u043b\u0435\u0444\u043e\u043d\u00bb \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u043d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0435 \u0441\u0438\u043c\u0432\u043e\u043b\u044b.\n'
-                              '\u0414\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b: \u0446\u0438\u0444\u0440\u044b, \u043f\u0440\u043e\u0431\u0435\u043b\u044b, + - ( ) .')
+            _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
+                              'Допустимы: цифры, пробелы, + - ( ) .')
             return
         if self.row:
             self.db.execute(
@@ -211,17 +255,17 @@ class ClientDialog(_BaseDialog):
 # ----------------------------------------------------------------------
 class SupplierDialog(_BaseDialog):
     def __init__(self, db, row=None):
-        super().__init__("\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a")
+        super().__init__("Поставщик")
         self.db = db
         self.row = row
-        self.f_name = QLineEdit()
-        self.f_contact = QLineEdit()
-        self.f_phone = QLineEdit()
-        self.f_address = QLineEdit()
-        self.form.addRow("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", self.f_name)
-        self.form.addRow("\u041a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u043e\u0435 \u043b\u0438\u0446\u043e", self.f_contact)
-        self.form.addRow("\u0422\u0435\u043b\u0435\u0444\u043e\u043d", self.f_phone)
-        self.form.addRow("\u0410\u0434\u0440\u0435\u0441", self.f_address)
+        self.f_name = _make_name_field()
+        self.f_contact = _make_name_field(100)
+        self.f_phone = _make_phone_field()
+        self.f_address = _make_name_field(250)
+        self.form.addRow("Название", self.f_name)
+        self.form.addRow("Контактное лицо", self.f_contact)
+        self.form.addRow("Телефон", self.f_phone)
+        self.form.addRow("Адрес", self.f_address)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -234,18 +278,18 @@ class SupplierDialog(_BaseDialog):
 
     def accept(self):
         for err in [
-            _validate_text(self.f_name.text(), '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435'),
-            _validate_text(self.f_contact.text(), '\u041a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u043e\u0435 \u043b\u0438\u0446\u043e', required=False),
-            _validate_text(self.f_phone.text(), '\u0422\u0435\u043b\u0435\u0444\u043e\u043d', required=False),
-            _validate_text(self.f_address.text(), '\u0410\u0434\u0440\u0435\u0441', required=False),
+            _validate_text(self.f_name.text(), 'Название'),
+            _validate_text(self.f_contact.text(), 'Контактное лицо', required=False),
+            _validate_text(self.f_phone.text(), 'Телефон', required=False),
+            _validate_text(self.f_address.text(), 'Адрес', required=False),
         ]:
             if err:
                 _show_error(self, err)
                 return
         phone = self.f_phone.text().strip()
         if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
-            _show_error(self, '\u041f\u043e\u043b\u0435 \u00ab\u0422\u0435\u043b\u0435\u0444\u043e\u043d\u00bb \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u043d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0435 \u0441\u0438\u043c\u0432\u043e\u043b\u044b.\n'
-                              '\u0414\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b: \u0446\u0438\u0444\u0440\u044b, \u043f\u0440\u043e\u0431\u0435\u043b\u044b, + - ( ) .')
+            _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
+                              'Допустимы: цифры, пробелы, + - ( ) .')
             return
         if self.row:
             self.db.execute(
@@ -267,11 +311,11 @@ class SupplierDialog(_BaseDialog):
 # ----------------------------------------------------------------------
 class CategoryDialog(_BaseDialog):
     def __init__(self, db, row=None):
-        super().__init__("\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f")
+        super().__init__("Категория")
         self.db = db
         self.row = row
-        self.f_name = QLineEdit()
-        self.form.addRow("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", self.f_name)
+        self.f_name = _make_name_field()
+        self.form.addRow("Название", self.f_name)
         self._fill_form(row)
 
     def _fill_form(self, row):
@@ -280,7 +324,7 @@ class CategoryDialog(_BaseDialog):
         self.f_name.setText(row["name"] or "")
 
     def accept(self):
-        err = _validate_text(self.f_name.text(), '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435')
+        err = _validate_text(self.f_name.text(), 'Название')
         if err:
             _show_error(self, err)
             return
@@ -303,22 +347,20 @@ class CategoryDialog(_BaseDialog):
 class OrderDialog(QDialog):
     """Dialog for creating or editing an order with product line items."""
 
-    _ITEM_HEADERS = ["ID \u043f\u043e\u0437\u0438\u0446\u0438\u0438", "\u0422\u043e\u0432\u0430\u0440", "\u041a\u043e\u043b-\u0432\u043e", "\u0426\u0435\u043d\u0430 \u0437\u0430 \u0435\u0434.", "\u0421\u0443\u043c\u043c\u0430"]
+    _ITEM_HEADERS = ["ID позиции", "Товар", "Кол-во", "Цена за ед.", "Сумма"]
+    _STATUSES = ['новый', 'в обработке', 'выполнен', 'отменён']
 
     def __init__(self, db, row=None):
         super().__init__()
         self.db = db
         self.row = row
-        self.setWindowTitle("\u0417\u0430\u043a\u0430\u0437")
+        self.setWindowTitle("Заказ")
         self.setMinimumWidth(680)
 
-        # Load products with stock; in edit mode add back qty already in this order
         prods = db.fetchall("SELECT id, name, price, stock FROM products ORDER BY name")
         self._prod_ids = [p[0] for p in prods]
         self._prod_names = [p[1] for p in prods]
         self._prod_price = {p[0]: float(p[2] or 0) for p in prods}
-        # Available = current stock (already has order items subtracted from DB)
-        # For EDIT mode we restore the qty from this order so user sees real available
         self._prod_avail = {p[0]: int(p[3] or 0) for p in prods}
         if row is not None:
             existing = db.get_order_items(row["id"])
@@ -338,18 +380,17 @@ class OrderDialog(QDialog):
         if not self._client_ids:
             self.f_client.setEnabled(False)
 
-        self.f_date = QLineEdit()
-        self.f_date.setPlaceholderText("\u0413\u0413\u0413\u0413-\u041c\u041c-\u0414\u0414")
+        self.f_date = _make_date_field()
 
         self.f_status = QComboBox()
-        self.f_status.addItems(["\u043d\u043e\u0432\u044b\u0439", "\u0432 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u0435", "\u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d", "\u043e\u0442\u043c\u0435\u043d\u0451\u043d"])
+        self.f_status.addItems(self._STATUSES)
 
-        form.addRow("\u041a\u043b\u0438\u0435\u043d\u0442", self.f_client)
-        form.addRow("\u0414\u0430\u0442\u0430",   self.f_date)
-        form.addRow("\u0421\u0442\u0430\u0442\u0443\u0441", self.f_status)
+        form.addRow("Клиент", self.f_client)
+        form.addRow("Дата",   self.f_date)
+        form.addRow("Статус", self.f_status)
         main.addLayout(form)
 
-        main.addWidget(QLabel("<b>\u0422\u043e\u0432\u0430\u0440\u044b \u0432 \u0437\u0430\u043a\u0430\u0437\u0435:</b>"))
+        main.addWidget(QLabel("<b>Товары в заказе:</b>"))
 
         add_row = QHBoxLayout()
         self.cb_product = QComboBox()
@@ -367,12 +408,12 @@ class OrderDialog(QDialog):
         self.lbl_avail = QLabel()
         self._update_qty_max()
 
-        self.btn_add_item = QPushButton("+ \u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0442\u043e\u0432\u0430\u0440")
-        self.btn_del_item = QPushButton("\u2212 \u0423\u0431\u0440\u0430\u0442\u044c")
+        self.btn_add_item = QPushButton("+ Добавить товар")
+        self.btn_del_item = QPushButton("− Убрать")
 
-        add_row.addWidget(QLabel("\u0422\u043e\u0432\u0430\u0440:"))
+        add_row.addWidget(QLabel("Товар:"))
         add_row.addWidget(self.cb_product, 1)
-        add_row.addWidget(QLabel("\u041a\u043e\u043b-\u0432\u043e:"))
+        add_row.addWidget(QLabel("Кол-во:"))
         add_row.addWidget(self.sp_qty)
         add_row.addWidget(self.lbl_avail)
         add_row.addWidget(self.btn_add_item)
@@ -392,7 +433,7 @@ class OrderDialog(QDialog):
 
         total_row = QHBoxLayout()
         total_row.addStretch()
-        self.lbl_total = QLabel("\u0418\u0442\u043e\u0433\u043e: 0.00")
+        self.lbl_total = QLabel("Итого: 0.00")
         self.lbl_total.setStyleSheet("font-weight: bold; font-size: 14px;")
         total_row.addWidget(self.lbl_total)
         main.addLayout(total_row)
@@ -422,7 +463,7 @@ class OrderDialog(QDialog):
         pid = self._prod_ids[idx]
         avail = self._prod_avail.get(pid, 0)
         self.sp_qty.setMaximum(max(avail, 1))
-        self.lbl_avail.setText(f"(\u0434\u043e\u0441\u0442.: {avail})")
+        self.lbl_avail.setText(f"(дост.: {avail})")
 
     def _fill_form(self, row):
         if row is None:
@@ -433,7 +474,7 @@ class OrderDialog(QDialog):
             except ValueError:
                 pass
         self.f_date.setText(row["date"] or "")
-        idx = self.f_status.findText(row["status"] or "\u043d\u043e\u0432\u044b\u0439")
+        idx = self.f_status.findText(row["status"] or "новый")
         if idx >= 0:
             self.f_status.setCurrentIndex(idx)
         items = self.db.get_order_items(row["id"])
@@ -454,7 +495,6 @@ class OrderDialog(QDialog):
         subtotal = qty * price
         for c, val in enumerate([str(item_id), prod_name, str(qty), f"{price:.2f}", f"{subtotal:.2f}"]):
             self.items_table.setItem(r, c, QTableWidgetItem(val))
-        # store prod_id in hidden column 0 item's UserRole for easy retrieval
         self.items_table.item(r, 0).setData(Qt.ItemDataRole.UserRole, prod_id)
 
     def _refresh_total(self):
@@ -464,11 +504,11 @@ class OrderDialog(QDialog):
                 total += float(self.items_table.item(r, 4).text())
             except (AttributeError, ValueError):
                 pass
-        self.lbl_total.setText(f"\u0418\u0442\u043e\u0433\u043e: {total:.2f}")
+        self.lbl_total.setText(f"Итого: {total:.2f}")
 
     def _on_add_item(self):
         if not self._prod_ids:
-            _show_error(self, "\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0445 \u0442\u043e\u0432\u0430\u0440\u043e\u0432. \u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0434\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0442\u043e\u0432\u0430\u0440\u044b.")
+            _show_error(self, "Нет доступных товаров. Сначала добавьте товары.")
             return
         idx = self.cb_product.currentIndex()
         prod_id = self._prod_ids[idx]
@@ -478,7 +518,7 @@ class OrderDialog(QDialog):
         avail = self._prod_avail.get(prod_id, 0)
 
         if qty > avail:
-            _show_error(self, f'\u041d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0442\u043e\u0432\u0430\u0440\u0430 \u00ab{prod_name}\u00bb. \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {avail}.')
+            _show_error(self, f'Недостаточно товара «{prod_name}». Доступно: {avail}.')
             return
 
         if self.row is not None:
@@ -523,37 +563,44 @@ class OrderDialog(QDialog):
 
     def accept(self):
         if not self._client_ids:
-            _show_error(self, "\u041d\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0445 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432. \u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0434\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u043a\u043b\u0438\u0435\u043d\u0442\u0430.")
+            _show_error(self, "Нет доступных клиентов. Сначала добавьте клиента.")
             return
-        err = _validate_date(self.f_date.text())
+        err = _validate_date(self.f_date.text().replace('_', '').strip())
         if err:
             _show_error(self, err)
             return
         if self.items_table.rowCount() == 0:
-            _show_error(self, "\u0414\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u0438\u043d \u0442\u043e\u0432\u0430\u0440 \u0432 \u0437\u0430\u043a\u0430\u0437.")
+            _show_error(self, "Добавьте хотя бы один товар в заказ.")
             return
 
         client_id = self._client_ids[self.f_client.currentIndex()]
         date = self.f_date.text().strip()
-        status = self.f_status.currentText()
+        new_status = self.f_status.currentText()
 
         if self.row:
+            old_status = self.row["status"]
+            if old_status != new_status:
+                try:
+                    self.db.update_order_status(self.row["id"], new_status)
+                except ValueError as e:
+                    _show_error(self, str(e))
+                    return
             self.db.execute(
-                "UPDATE orders SET client_id=?,date=?,status=? WHERE id=?",
-                (client_id, date, status, self.row["id"]),
+                "UPDATE orders SET client_id=?,date=? WHERE id=?",
+                (client_id, date, self.row["id"]),
             )
             self.db._recalc_order(self.row["id"])
         else:
             order_id = self.db.execute(
                 "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,0)",
-                (client_id, date, status),
+                (client_id, date, new_status),
             )
             for p in self._pending:
                 stock = self.db.get_product_stock(p["product_id"])
                 if p["qty"] > stock:
                     self.db.execute("DELETE FROM orders WHERE id=?", (order_id,))
                     prod_name = self._prod_names[self._prod_ids.index(p["product_id"])]
-                    _show_error(self, f'\u041d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0442\u043e\u0432\u0430\u0440\u0430 \u00ab{prod_name}\u00bb \u043d\u0430 \u0441\u043a\u043b\u0430\u0434\u0435. \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {stock}.')
+                    _show_error(self, f'Недостаточно товара «{prod_name}» на складе. Доступно: {stock}.')
                     return
                 self.db.add_order_item(order_id, p["product_id"], p["qty"], p["price"])
             self.db._recalc_order(order_id)
@@ -564,11 +611,11 @@ class OrderDialog(QDialog):
 # ViewOrderDialog
 # ----------------------------------------------------------------------
 class ViewOrderDialog(QDialog):
-    _ITEM_HEADERS = ["\u0422\u043e\u0432\u0430\u0440", "\u041a\u043e\u043b-\u0432\u043e", "\u0426\u0435\u043d\u0430 \u0437\u0430 \u0435\u0434.", "\u0421\u0443\u043c\u043c\u0430"]
+    _ITEM_HEADERS = ["Товар", "Кол-во", "Цена за ед.", "Сумма"]
 
     def __init__(self, db, order_id: int, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u0437\u0430\u043a\u0430\u0437\u0430 #{order_id}")
+        self.setWindowTitle(f"Просмотр заказа #{order_id}")
         self.setMinimumWidth(560)
 
         order = db.fetchone(
@@ -580,13 +627,13 @@ class ViewOrderDialog(QDialog):
 
         layout = QVBoxLayout(self)
         info = QFormLayout()
-        info.addRow("\u041d\u043e\u043c\u0435\u0440 \u0437\u0430\u043a\u0430\u0437\u0430:",  QLabel(str(order["id"])))
-        info.addRow("\u041a\u043b\u0438\u0435\u043d\u0442:",        QLabel(order["client"]))
-        info.addRow("\u0414\u0430\u0442\u0430:",          QLabel(order["date"] or "\u2014"))
-        info.addRow("\u0421\u0442\u0430\u0442\u0443\u0441:",        QLabel(order["status"] or "\u2014"))
+        info.addRow("Номер заказа:",  QLabel(str(order["id"])))
+        info.addRow("Клиент:",        QLabel(order["client"]))
+        info.addRow("Дата:",          QLabel(order["date"] or "—"))
+        info.addRow("Статус:",        QLabel(order["status"] or "—"))
         layout.addLayout(info)
 
-        layout.addWidget(QLabel("<b>\u0421\u043e\u0441\u0442\u0430\u0432 \u0437\u0430\u043a\u0430\u0437\u0430:</b>"))
+        layout.addWidget(QLabel("<b>Состав заказа:</b>"))
         tbl = QTableWidget(len(items), len(self._ITEM_HEADERS))
         tbl.setHorizontalHeaderLabels(self._ITEM_HEADERS)
         tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -602,7 +649,7 @@ class ViewOrderDialog(QDialog):
 
         total_row = QHBoxLayout()
         total_row.addStretch()
-        lbl = QLabel(f"<b>\u0418\u0442\u043e\u0433\u043e: {float(order['total']):.2f}</b>")
+        lbl = QLabel(f"<b>Итого: {float(order['total']):.2f}</b>")
         lbl.setStyleSheet("font-size: 14px;")
         total_row.addWidget(lbl)
         layout.addLayout(total_row)

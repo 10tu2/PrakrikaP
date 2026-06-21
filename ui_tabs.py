@@ -8,6 +8,7 @@ from dialogs import (
     ProductDialog, OrderDialog, ClientDialog,
     SupplierDialog, CategoryDialog, ViewOrderDialog
 )
+from database import ACTIVE_STATUSES
 
 
 class BaseTab(QWidget):
@@ -20,9 +21,9 @@ class BaseTab(QWidget):
         if title:
             layout.addWidget(QLabel(f"<b>{title}</b>"))
         btn_bar = QHBoxLayout()
-        self.btn_add  = QPushButton("+ \u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c")
-        self.btn_edit = QPushButton("\u270e \u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c")
-        self.btn_del  = QPushButton("- \u0423\u0434\u0430\u043b\u0438\u0442\u044c")
+        self.btn_add  = QPushButton("+ Добавить")
+        self.btn_edit = QPushButton("✎ Изменить")
+        self.btn_del  = QPushButton("- Удалить")
         for b in (self.btn_add, self.btn_edit, self.btn_del):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
@@ -64,18 +65,25 @@ class BaseTab(QWidget):
 # ProductsTab
 # ----------------------------------------------------------------------
 class ProductsTab(BaseTab):
-    HEADERS = ["ID", "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", "\u0410\u0440\u0442\u0438\u043a\u0443\u043b", "\u0426\u0435\u043d\u0430", "\u041e\u0441\u0442\u0430\u0442\u043e\u043a", "\u0417\u0430\u0440\u0435\u0437\u0435\u0440\u0432.", "\u0421\u0432\u043e\u0431\u043e\u0434\u043d\u043e", "\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f", "\u041f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a"]
+    HEADERS = ["ID", "Название", "Артикул", "Цена", "Остаток (физ.)",
+               "Зарезерв. (акт.)", "Свободно", "Категория", "Поставщик"]
 
     def load(self):
+        # Зарезервировано = только позиции в АКТИВНЫХ заказах
+        active_ph = ','.join(f"'{s}'" for s in ACTIVE_STATUSES)
         rows = self.db.fetchall(
-            "SELECT p.id, p.name, p.sku, p.price, p.stock, "
-            "COALESCE((SELECT SUM(oi.qty) FROM order_items oi WHERE oi.product_id=p.id),0) AS reserved, "
-            "p.stock - COALESCE((SELECT SUM(oi.qty) FROM order_items oi WHERE oi.product_id=p.id),0) AS free_stock, "
-            "COALESCE(c.name, '') AS cat, COALESCE(s.name, '') AS sup "
-            "FROM products p "
-            "LEFT JOIN categories c ON c.id = p.category_id "
-            "LEFT JOIN suppliers s ON s.id = p.supplier_id "
-            "ORDER BY p.name"
+            f"SELECT p.id, p.name, p.sku, p.price, p.stock, "
+            f"COALESCE((SELECT SUM(oi.qty) FROM order_items oi "
+            f"          JOIN orders o ON o.id=oi.order_id "
+            f"          WHERE oi.product_id=p.id AND o.status IN ({active_ph})),0) AS reserved, "
+            f"p.stock - COALESCE((SELECT SUM(oi.qty) FROM order_items oi "
+            f"                     JOIN orders o ON o.id=oi.order_id "
+            f"                     WHERE oi.product_id=p.id AND o.status IN ({active_ph})),0) AS free_stock, "
+            f"COALESCE(c.name, '') AS cat, COALESCE(s.name, '') AS sup "
+            f"FROM products p "
+            f"LEFT JOIN categories c ON c.id = p.category_id "
+            f"LEFT JOIN suppliers s ON s.id = p.supplier_id "
+            f"ORDER BY p.name"
         )
         self._fill_table(self.HEADERS, rows)
 
@@ -101,14 +109,14 @@ class ProductsTab(BaseTab):
         reserved = self.db.get_reserved_stock(rid)
         if reserved > 0:
             QMessageBox.warning(
-                self, "\u041d\u0435\u043b\u044c\u0437\u044f \u0443\u0434\u0430\u043b\u0438\u0442\u044c",
-                f"\u0422\u043e\u0432\u0430\u0440 #\u200b{rid} \u0437\u0430\u0440\u0435\u0437\u0435\u0440\u0432\u0438\u0440\u043e\u0432\u0430\u043d \u0432 {reserved} \u0448\u0442. \u0432 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u0437\u0430\u043a\u0430\u0437\u0430\u0445.\n"
-                f"\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0443\u0434\u0430\u043b\u0438\u0442\u0435 \u0438\u043b\u0438 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u0435 \u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u0437\u0430\u043a\u0430\u0437\u044b."
+                self, "Нельзя удалить",
+                f"Товар #{rid} зарезервирован в {reserved} шт. в активных заказах.\n"
+                f"Сначала удалите или завершите связанные заказы."
             )
             return
         if QMessageBox.question(
-            self, "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u043e\u0432\u0430\u0440",
-            f"\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u043e\u0432\u0430\u0440 #{rid}?",
+            self, "Удалить товар",
+            f"Удалить товар #{rid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM products WHERE id = ?", (rid,))
@@ -119,17 +127,17 @@ class ProductsTab(BaseTab):
 # OrdersTab
 # ----------------------------------------------------------------------
 class OrdersTab(QWidget):
-    HEADERS = ["ID", "\u041a\u043b\u0438\u0435\u043d\u0442", "\u0414\u0430\u0442\u0430", "\u0421\u0442\u0430\u0442\u0443\u0441", "\u0421\u0443\u043c\u043c\u0430", "\u041f\u043e\u0437\u0438\u0446\u0438\u0439"]
+    HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма", "Позиций"]
 
     def __init__(self, db):
         super().__init__()
         self.db = db
         layout = QVBoxLayout(self)
         btn_bar = QHBoxLayout()
-        self.btn_add  = QPushButton("+ \u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c")
-        self.btn_edit = QPushButton("\u270e \u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c")
-        self.btn_del  = QPushButton("- \u0423\u0434\u0430\u043b\u0438\u0442\u044c")
-        self.btn_view = QPushButton("\U0001f441 \u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440")
+        self.btn_add  = QPushButton("+ Добавить")
+        self.btn_edit = QPushButton("✎ Изменить")
+        self.btn_del  = QPushButton("- Удалить")
+        self.btn_view = QPushButton("👁 Просмотр")
         for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_view):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
@@ -189,11 +197,11 @@ class OrdersTab(QWidget):
         if rid is None:
             return
         if QMessageBox.question(
-            self, "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043a\u0430\u0437",
-            f"\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u043a\u0430\u0437 #{rid}? \u041e\u0441\u0442\u0430\u0442\u043e\u043a \u0442\u043e\u0432\u0430\u0440\u043e\u0432 \u0431\u0443\u0434\u0435\u0442 \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d.",
+            self, "Удалить заказ",
+            f"Удалить заказ #{rid}? Остаток товаров будет восстановлен (если заказ был активным).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
-            self.db.delete_order(rid)   # restores stock automatically
+            self.db.delete_order(rid)
             self.load()
 
     def on_view(self):
@@ -208,7 +216,7 @@ class OrdersTab(QWidget):
 # ClientsTab
 # ----------------------------------------------------------------------
 class ClientsTab(BaseTab):
-    HEADERS = ["ID", "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", "\u041a\u043e\u043d\u0442\u0430\u043a\u0442", "\u0422\u0435\u043b\u0435\u0444\u043e\u043d", "\u0410\u0434\u0440\u0435\u0441"]
+    HEADERS = ["ID", "Название", "Контакт", "Телефон", "Адрес"]
 
     def load(self):
         rows = self.db.fetchall("SELECT id, name, contact, phone, address FROM clients ORDER BY name")
@@ -230,8 +238,8 @@ class ClientsTab(BaseTab):
         rid = self.selected_id()
         if rid is None: return
         if QMessageBox.question(
-            self, "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043a\u043b\u0438\u0435\u043d\u0442\u0430",
-            f"\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043a\u043b\u0438\u0435\u043d\u0442\u0430 #{rid}?",
+            self, "Удалить клиента",
+            f"Удалить клиента #{rid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM clients WHERE id = ?", (rid,))
@@ -242,7 +250,7 @@ class ClientsTab(BaseTab):
 # SuppliersTab
 # ----------------------------------------------------------------------
 class SuppliersTab(BaseTab):
-    HEADERS = ["ID", "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435", "\u041a\u043e\u043d\u0442\u0430\u043a\u0442", "\u0422\u0435\u043b\u0435\u0444\u043e\u043d", "\u0410\u0434\u0440\u0435\u0441"]
+    HEADERS = ["ID", "Название", "Контакт", "Телефон", "Адрес"]
 
     def load(self):
         rows = self.db.fetchall("SELECT id, name, contact, phone, address FROM suppliers ORDER BY name")
@@ -264,8 +272,8 @@ class SuppliersTab(BaseTab):
         rid = self.selected_id()
         if rid is None: return
         if QMessageBox.question(
-            self, "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430",
-            f"\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043f\u043e\u0441\u0442\u0430\u0432\u0449\u0438\u043a\u0430 #{rid}?",
+            self, "Удалить поставщика",
+            f"Удалить поставщика #{rid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM suppliers WHERE id = ?", (rid,))
@@ -276,7 +284,7 @@ class SuppliersTab(BaseTab):
 # CategoriesTab
 # ----------------------------------------------------------------------
 class CategoriesTab(BaseTab):
-    HEADERS = ["ID", "\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435"]
+    HEADERS = ["ID", "Название"]
 
     def load(self):
         rows = self.db.fetchall("SELECT id, name FROM categories ORDER BY name")
@@ -298,8 +306,8 @@ class CategoriesTab(BaseTab):
         rid = self.selected_id()
         if rid is None: return
         if QMessageBox.question(
-            self, "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e",
-            f"\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e #{rid}?",
+            self, "Удалить категорию",
+            f"Удалить категорию #{rid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM categories WHERE id = ?", (rid,))
