@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QLabel,
-    QStatusBar, QPushButton, QWidget, QHBoxLayout, QToolBar
+    QStatusBar, QPushButton, QWidget, QSizePolicy, QToolBar
 )
 from PyQt6.QtCore import Qt
 from database import Database, ROLE_ADMIN
@@ -19,10 +19,11 @@ DB_PATH   = "trade_store.db"
 class MainWindow(QMainWindow):
     def __init__(self, db: Database, user, on_logout=None):
         super().__init__()
-        self.db         = db
-        self.user       = user
-        self._on_logout = on_logout
-        is_admin        = (user["role"] == ROLE_ADMIN)
+        self.db           = db
+        self.user         = user
+        self._on_logout   = on_logout
+        self._logging_out = False   # флаг: выход через кнопку, а не крестик
+        is_admin          = (user["role"] == ROLE_ADMIN)
 
         self.setWindowTitle(
             f"{APP_TITLE}  —  {user['full_name'] or user['username']} "
@@ -40,13 +41,7 @@ class MainWindow(QMainWindow):
         lbl_user = QLabel(f"  👤 {user['full_name'] or user['username']}   |   {role_str}  ")
         toolbar.addWidget(lbl_user)
 
-        # Растяжка, пушает кнопку вправо
         spacer = QWidget()
-        spacer.setSizePolicy(
-            spacer.sizePolicy().horizontalPolicy(),
-            spacer.sizePolicy().verticalPolicy()
-        )
-        from PyQt6.QtWidgets import QSizePolicy
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
@@ -64,57 +59,58 @@ class MainWindow(QMainWindow):
         products_tab = ProductsTab(db)
         orders_tab   = OrdersTab(db, on_products_changed=products_tab.load)
 
-        tabs.addTab(products_tab,       "🛒  Товары")
-        tabs.addTab(orders_tab,         "📋  Заказы")
-        tabs.addTab(ClientsTab(db),     "👥  Клиенты")
-        tabs.addTab(SuppliersTab(db),   "🏭  Поставщики")
-        tabs.addTab(CategoriesTab(db),  "🗂  Категории")
+        tabs.addTab(products_tab,      "🛒  Товары")
+        tabs.addTab(orders_tab,        "📋  Заказы")
+        tabs.addTab(ClientsTab(db),    "👥  Клиенты")
+        tabs.addTab(SuppliersTab(db),  "🏭  Поставщики")
+        tabs.addTab(CategoriesTab(db), "🗂  Категории")
 
         if is_admin:
             tabs.addTab(UsersTab(db, current_user_id=user["id"]), "👤  Пользователи")
 
-        # Строка статуса остаётся пустой (can be used for status messages later)
         self.setStatusBar(QStatusBar())
 
     def _logout(self):
+        """logout — скрываем окно и выходим из event loop."""
+        self._logging_out = True
         self.hide()
-        if self._on_logout:
-            self._on_logout()
+        QApplication.quit()          # завершает app.exec() в цикле
 
     def closeEvent(self, event):
-        self.db.close()
+        if not self._logging_out:
+            # Пользователь закрыл крестиком — помечаем как не logout
+            pass
         event.accept()
 
 
 def _run_app(app: QApplication, db: Database):
-    """Показывает LoginDialog, затем MainWindow. При выходе возвращает к LoginDialog."""
+    """Показывает LoginDialog, затем MainWindow.
+    Кнопка «Выйти» в главном окне → возврат к окну входа.
+    Крестик главного окна → выход из приложения.
+    Кнопка «Выход» в окне входа → выход из приложения.
+    """
     while True:
         login = LoginDialog(db)
         result = login.exec()
 
-        # Пользователь нажал «Выход» — закрываем приложение
         if result == LOGIN_EXIT_CODE:
+            # Нажал «Выход» на экране входа
             break
 
-        # Закрыл окно крестиком (Rejected) или не вошёл
         if result != LoginDialog.DialogCode.Accepted or login.user is None:
+            # Закрыл крестиком
             break
 
-        logged_out = False
-
-        def on_logout():
-            nonlocal logged_out
-            logged_out = True
-            w.close()
-
-        w = MainWindow(db, login.user, on_logout=on_logout)
+        w = MainWindow(db, login.user)
         w.show()
-        app.exec()
+        app.exec()   # блокируется до QApplication.quit() или закрытия окна
 
-        if not logged_out:
+        if not w._logging_out:
             # Пользователь закрыл окно крестиком — выходим полностью
             break
-        # Иначе (logged_out=True) — цикл повторяется, показывается окно входа
+        # _logging_out=True — цикл повторяется, показывается окно входа
+
+    db.close()
 
 
 def main():
@@ -123,7 +119,6 @@ def main():
 
     db = Database(DB_PATH)
     _run_app(app, db)
-    db.close()
     sys.exit(0)
 
 
