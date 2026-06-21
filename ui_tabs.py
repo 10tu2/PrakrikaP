@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from dialogs import (
     ProductDialog, OrderDialog, ClientDialog,
-    SupplierDialog, CategoryDialog
+    SupplierDialog, CategoryDialog, ViewOrderDialog
 )
 
 
@@ -25,7 +25,6 @@ class BaseTab(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # Row with title + buttons
         if title:
             layout.addWidget(QLabel(f"<b>{title}</b>"))
 
@@ -38,7 +37,6 @@ class BaseTab(QWidget):
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
 
-        # Table
         self.table = QTableWidget()
         self.table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
@@ -53,12 +51,10 @@ class BaseTab(QWidget):
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
-        # Connect
         self.btn_add.clicked.connect(self.on_add)
         self.btn_edit.clicked.connect(self.on_edit)
         self.btn_del.clicked.connect(self.on_delete)
 
-        # Initial load
         self.load()
 
     def _fill_table(self, headers, rows):
@@ -144,18 +140,63 @@ class ProductsTab(BaseTab):
 # OrdersTab
 # ----------------------------------------------------------------------
 
-class OrdersTab(BaseTab):
-    HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма"]
+class OrdersTab(QWidget):
+    """Orders tab with Add / Edit / Delete / View buttons."""
+
+    HEADERS = ["ID", "Клиент", "Дата", "Статус", "Сумма", "Позиций"]
+
+    def __init__(self, db):
+        super().__init__()
+        self.db = db
+
+        layout = QVBoxLayout(self)
+
+        btn_bar = QHBoxLayout()
+        self.btn_add  = QPushButton("+ Добавить")
+        self.btn_edit = QPushButton("✎ Изменить")
+        self.btn_del  = QPushButton("- Удалить")
+        self.btn_view = QPushButton("👁 Просмотр")
+        for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_view):
+            btn_bar.addWidget(b)
+        btn_bar.addStretch()
+        layout.addLayout(btn_bar)
+
+        self.table = QTableWidget()
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.table)
+
+        self.btn_add.clicked.connect(self.on_add)
+        self.btn_edit.clicked.connect(self.on_edit)
+        self.btn_del.clicked.connect(self.on_delete)
+        self.btn_view.clicked.connect(self.on_view)
+        self.table.doubleClicked.connect(self.on_view)
+
+        self.load()
+
+    def _selected_id(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        return int(self.table.item(row, 0).text())
 
     def load(self):
         rows = self.db.fetchall(
-            "SELECT o.id, COALESCE(c.name, '') AS client, "
-            "o.date, o.status, o.total "
+            "SELECT o.id, COALESCE(c.name,'') AS client, "
+            "o.date, o.status, o.total, "
+            "(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id=o.id) AS items "
             "FROM orders o "
             "LEFT JOIN clients c ON c.id = o.client_id "
             "ORDER BY o.date DESC, o.id DESC"
         )
-        self._fill_table(self.HEADERS, rows)
+        self.table.setColumnCount(len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        self.table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                self.table.setItem(r, c, QTableWidgetItem(str(val if val is not None else "")))
 
     def on_add(self):
         dlg = OrderDialog(self.db)
@@ -163,7 +204,7 @@ class OrdersTab(BaseTab):
             self.load()
 
     def on_edit(self):
-        rid = self.selected_id()
+        rid = self._selected_id()
         if rid is None:
             return
         row = self.db.fetchone("SELECT * FROM orders WHERE id = ?", (rid,))
@@ -173,7 +214,7 @@ class OrdersTab(BaseTab):
                 self.load()
 
     def on_delete(self):
-        rid = self.selected_id()
+        rid = self._selected_id()
         if rid is None:
             return
         if QMessageBox.question(
@@ -181,8 +222,16 @@ class OrdersTab(BaseTab):
             f"Удалить заказ #{rid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         ) == QMessageBox.StandardButton.Yes:
+            self.db.execute("DELETE FROM order_items WHERE order_id = ?", (rid,))
             self.db.execute("DELETE FROM orders WHERE id = ?", (rid,))
             self.load()
+
+    def on_view(self):
+        rid = self._selected_id()
+        if rid is None:
+            return
+        dlg = ViewOrderDialog(self.db, rid, self)
+        dlg.exec()
 
 
 # ----------------------------------------------------------------------

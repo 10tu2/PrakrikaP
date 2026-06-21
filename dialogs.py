@@ -2,8 +2,10 @@ import re
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
     QSpinBox, QComboBox, QDialogButtonBox, QVBoxLayout,
-    QMessageBox
+    QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
+    QHeaderView, QLabel, QMessageBox
 )
+from PyQt6.QtCore import Qt
 
 # Characters forbidden in text fields
 _FORBIDDEN_RE = re.compile(r'[\x00-\x1f<>"\\]')
@@ -165,7 +167,6 @@ class ClientDialog(_BaseDialog):
                 _show_error(self, err)
                 return
 
-        # Additional phone validation: digits, spaces, +, -, (, ) only
         phone = self.f_phone.text().strip()
         if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
             _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
@@ -223,7 +224,6 @@ class SupplierDialog(_BaseDialog):
                 _show_error(self, err)
                 return
 
-        # Additional phone validation
         phone = self.f_phone.text().strip()
         if phone and not re.fullmatch(r'[\d\s\+\-\(\)\.]+', phone):
             _show_error(self, 'Поле «Телефон» содержит недопустимые символы.\n'
@@ -280,48 +280,212 @@ class CategoryDialog(_BaseDialog):
 
 
 # ----------------------------------------------------------------------
-# OrderDialog
+# OrderDialog  — create / edit with order_items sub-table
 # ----------------------------------------------------------------------
-class OrderDialog(_BaseDialog):
+class OrderDialog(QDialog):
+    """Dialog for creating or editing an order with product line items."""
+
+    _ITEM_HEADERS = ["ID позиции", "Товар", "Кол-во", "Цена за ед.", "Сумма"]
+
     def __init__(self, db, row=None):
-        super().__init__("Заказ")
+        super().__init__()
         self.db = db
         self.row = row
-        self.f_client = QComboBox()
+        self.setWindowTitle("Заказ")
+        self.setMinimumWidth(680)
+
+        # ---- products catalogue (id, name, price) ----
+        prods = db.fetchall(
+            "SELECT id, name, price FROM products ORDER BY name"
+        )
+        self._prod_ids   = [p[0] for p in prods]
+        self._prod_names = [p[1] for p in prods]
+        self._prod_price = {p[0]: float(p[2] or 0) for p in prods}
+
+        # ---- clients list ----
         clients = db.fetchall("SELECT id, name FROM clients ORDER BY name")
-        self._client_ids = [r[0] for r in clients]
-        self.f_client.addItems([r[1] for r in clients])
+        self._client_ids = [c[0] for c in clients]
+
+        main = QVBoxLayout(self)
+
+        # -- header form --
+        form = QFormLayout()
+        self.f_client = QComboBox()
+        self.f_client.addItems([c[1] for c in clients])
         if not self._client_ids:
             self.f_client.setEnabled(False)
+
         self.f_date = QLineEdit()
-        self.f_date.setPlaceholderText('ГГГГ-ММ-ДД')
+        self.f_date.setPlaceholderText("ГГГГ-ММ-ДД")
+
         self.f_status = QComboBox()
         self.f_status.addItems(["новый", "в обработке", "выполнен", "отменён"])
-        self.f_total = QDoubleSpinBox()
-        self.f_total.setDecimals(2)
-        self.f_total.setMaximum(9999999.99)
-        self.form.addRow("Клиент", self.f_client)
-        self.form.addRow("Дата", self.f_date)
-        self.form.addRow("Статус", self.f_status)
-        self.form.addRow("Сумма", self.f_total)
+
+        form.addRow("Клиент", self.f_client)
+        form.addRow("Дата",   self.f_date)
+        form.addRow("Статус", self.f_status)
+        main.addLayout(form)
+
+        # -- items section --
+        main.addWidget(QLabel("<b>Товары в заказе:</b>"))
+
+        # add-item row
+        add_row = QHBoxLayout()
+        self.cb_product = QComboBox()
+        self.cb_product.addItems(self._prod_names)
+        self.cb_product.setMinimumWidth(200)
+        if not self._prod_ids:
+            self.cb_product.setEnabled(False)
+
+        self.sp_qty = QSpinBox()
+        self.sp_qty.setMinimum(1)
+        self.sp_qty.setMaximum(99999)
+        self.sp_qty.setValue(1)
+
+        self.btn_add_item = QPushButton("+ Добавить товар")
+        self.btn_del_item = QPushButton("− Убрать")
+
+        add_row.addWidget(QLabel("Товар:"))
+        add_row.addWidget(self.cb_product, 1)
+        add_row.addWidget(QLabel("Кол-во:"))
+        add_row.addWidget(self.sp_qty)
+        add_row.addWidget(self.btn_add_item)
+        add_row.addWidget(self.btn_del_item)
+        main.addLayout(add_row)
+
+        # items table
+        self.items_table = QTableWidget()
+        self.items_table.setColumnCount(len(self._ITEM_HEADERS))
+        self.items_table.setHorizontalHeaderLabels(self._ITEM_HEADERS)
+        self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.items_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.items_table.setColumnHidden(0, True)  # hide item id
+        self.items_table.setMinimumHeight(180)
+        main.addWidget(self.items_table)
+
+        # total label
+        total_row = QHBoxLayout()
+        total_row.addStretch()
+        self.lbl_total = QLabel("Итого: 0.00")
+        self.lbl_total.setStyleSheet("font-weight: bold; font-size: 14px;")
+        total_row.addWidget(self.lbl_total)
+        main.addLayout(total_row)
+
+        # OK / Cancel
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        main.addWidget(btns)
+
+        # connections
+        self.btn_add_item.clicked.connect(self._on_add_item)
+        self.btn_del_item.clicked.connect(self._on_del_item)
+
+        # pending items for new orders: list of (tmp_id, product_id, qty, price)
+        # For edit mode items are stored in DB; we use tmp_id = -1 for new ones
+        self._pending: list[dict] = []   # used only in CREATE mode
+        self._tmp_counter = 0
+
         self._fill_form(row)
 
+    # ------------------------------------------------------------------ helpers
     def _fill_form(self, row):
         if row is None:
             return
         if self._client_ids and row["client_id"] is not None:
-            idx = self._client_ids.index(row["client_id"])
-            self.f_client.setCurrentIndex(idx)
+            try:
+                self.f_client.setCurrentIndex(self._client_ids.index(row["client_id"]))
+            except ValueError:
+                pass
         self.f_date.setText(row["date"] or "")
-        status = row["status"] or "новый"
-        idx = self.f_status.findText(status)
+        idx = self.f_status.findText(row["status"] or "новый")
         if idx >= 0:
             self.f_status.setCurrentIndex(idx)
-        self.f_total.setValue(float(row["total"]) if row["total"] else 0.0)
+        # load existing items from DB
+        if row is not None:
+            items = self.db.get_order_items(row["id"])
+            for it in items:
+                self._append_item_row(
+                    item_id=it["id"],
+                    prod_name=it["product"],
+                    qty=it["qty"],
+                    price=it["price"],
+                )
+        self._refresh_total()
 
+    def _append_item_row(self, item_id, prod_name, qty, price):
+        r = self.items_table.rowCount()
+        self.items_table.insertRow(r)
+        subtotal = qty * price
+        for c, val in enumerate([str(item_id), prod_name, str(qty),
+                                  f"{price:.2f}", f"{subtotal:.2f}"]):
+            self.items_table.setItem(r, c, QTableWidgetItem(val))
+
+    def _refresh_total(self):
+        total = 0.0
+        for r in range(self.items_table.rowCount()):
+            try:
+                total += float(self.items_table.item(r, 4).text())
+            except (AttributeError, ValueError):
+                pass
+        self.lbl_total.setText(f"Итого: {total:.2f}")
+
+    # ------------------------------------------------------------------ item actions
+    def _on_add_item(self):
+        if not self._prod_ids:
+            _show_error(self, "Нет доступных товаров. Сначала добавьте товары.")
+            return
+        idx = self.cb_product.currentIndex()
+        prod_id   = self._prod_ids[idx]
+        prod_name = self._prod_names[idx]
+        price     = self._prod_price[prod_id]
+        qty       = self.sp_qty.value()
+
+        if self.row is not None:
+            # EDIT mode: save directly to DB
+            self.db.add_order_item(self.row["id"], prod_id, qty, price)
+            item_id = self.db.fetchone(
+                "SELECT id FROM order_items WHERE order_id=? ORDER BY id DESC LIMIT 1",
+                (self.row["id"],)
+            )["id"]
+        else:
+            # CREATE mode: buffer in memory
+            self._tmp_counter += 1
+            item_id = -self._tmp_counter   # negative = not yet in DB
+            self._pending.append({
+                "tmp_id": item_id,
+                "product_id": prod_id,
+                "qty": qty,
+                "price": price,
+            })
+
+        self._append_item_row(item_id, prod_name, qty, price)
+        self._refresh_total()
+
+    def _on_del_item(self):
+        sel = self.items_table.currentRow()
+        if sel < 0:
+            return
+        item_id = int(self.items_table.item(sel, 0).text())
+
+        if self.row is not None and item_id > 0:
+            # EDIT mode: delete from DB
+            self.db.delete_order_item(item_id, self.row["id"])
+        else:
+            # CREATE mode: remove from pending buffer
+            self._pending = [p for p in self._pending if p["tmp_id"] != item_id]
+
+        self.items_table.removeRow(sel)
+        self._refresh_total()
+
+    # ------------------------------------------------------------------ accept
     def accept(self):
         if not self._client_ids:
-            _show_error(self, 'Нет доступных клиентов. Сначала добавьте клиента.')
+            _show_error(self, "Нет доступных клиентов. Сначала добавьте клиента.")
             return
 
         err = _validate_date(self.f_date.text())
@@ -329,19 +493,91 @@ class OrderDialog(_BaseDialog):
             _show_error(self, err)
             return
 
-        client_id = None
-        if self._client_ids and self.f_client.currentIndex() >= 0:
-            client_id = self._client_ids[self.f_client.currentIndex()]
+        if self.items_table.rowCount() == 0:
+            _show_error(self, "Добавьте хотя бы один товар в заказ.")
+            return
+
+        client_id = self._client_ids[self.f_client.currentIndex()]
+        date      = self.f_date.text().strip()
+        status    = self.f_status.currentText()
+
         if self.row:
+            # EDIT: update header only (items already saved live)
             self.db.execute(
-                "UPDATE orders SET client_id=?,date=?,status=?,total=? WHERE id=?",
-                (client_id, self.f_date.text().strip(),
-                 self.f_status.currentText(), self.f_total.value(), self.row["id"]),
+                "UPDATE orders SET client_id=?,date=?,status=? WHERE id=?",
+                (client_id, date, status, self.row["id"]),
             )
+            self.db._recalc_order(self.row["id"])
         else:
-            self.db.execute(
-                "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,?)",
-                (client_id, self.f_date.text().strip(),
-                 self.f_status.currentText(), self.f_total.value()),
+            # CREATE: insert order, then flush pending items
+            order_id = self.db.execute(
+                "INSERT INTO orders(client_id,date,status,total) VALUES(?,?,?,0)",
+                (client_id, date, status),
             )
+            for p in self._pending:
+                self.db.execute(
+                    "INSERT INTO order_items(order_id,product_id,qty,price) VALUES(?,?,?,?)",
+                    (order_id, p["product_id"], p["qty"], p["price"]),
+                )
+            self.db._recalc_order(order_id)
+
         super().accept()
+
+
+# ----------------------------------------------------------------------
+# ViewOrderDialog — read-only order details
+# ----------------------------------------------------------------------
+class ViewOrderDialog(QDialog):
+    """Read-only dialog showing full order details."""
+
+    _ITEM_HEADERS = ["Товар", "Кол-во", "Цена за ед.", "Сумма"]
+
+    def __init__(self, db, order_id: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Просмотр заказа #{order_id}")
+        self.setMinimumWidth(560)
+
+        order = db.fetchone(
+            "SELECT o.id, COALESCE(c.name,'') AS client, o.date, o.status, o.total "
+            "FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?",
+            (order_id,),
+        )
+        items = db.get_order_items(order_id)
+
+        layout = QVBoxLayout(self)
+
+        # header info
+        info = QFormLayout()
+        info.addRow("Номер заказа:",  QLabel(str(order["id"])))
+        info.addRow("Клиент:",        QLabel(order["client"]))
+        info.addRow("Дата:",          QLabel(order["date"] or "—"))
+        info.addRow("Статус:",        QLabel(order["status"] or "—"))
+        layout.addLayout(info)
+
+        # items table
+        layout.addWidget(QLabel("<b>Состав заказа:</b>"))
+        tbl = QTableWidget(len(items), len(self._ITEM_HEADERS))
+        tbl.setHorizontalHeaderLabels(self._ITEM_HEADERS)
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        tbl.setMinimumHeight(160)
+        for r, it in enumerate(items):
+            tbl.setItem(r, 0, QTableWidgetItem(it["product"]))
+            tbl.setItem(r, 1, QTableWidgetItem(str(it["qty"])))
+            tbl.setItem(r, 2, QTableWidgetItem(f"{float(it['price']):.2f}"))
+            tbl.setItem(r, 3, QTableWidgetItem(f"{float(it['subtotal']):.2f}"))
+        layout.addWidget(tbl)
+
+        # total
+        total_row = QHBoxLayout()
+        total_row.addStretch()
+        lbl = QLabel(f"<b>Итого: {float(order['total']):.2f}</b>")
+        lbl.setStyleSheet("font-size: 14px;")
+        total_row.addWidget(lbl)
+        layout.addLayout(total_row)
+
+        # close button
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
