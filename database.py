@@ -47,7 +47,7 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER,
                 date TEXT,
-                status TEXT DEFAULT 'новый',
+                status TEXT DEFAULT '\u043d\u043e\u0432\u044b\u0439',
                 total REAL DEFAULT 0
             )""",
             """CREATE TABLE IF NOT EXISTS order_items (
@@ -86,7 +86,7 @@ class Database:
 
         add_col("orders", "client_id", "ALTER TABLE orders ADD COLUMN client_id INTEGER")
         add_col("orders", "date",      "ALTER TABLE orders ADD COLUMN date TEXT")
-        add_col("orders", "status",    "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'новый'")
+        add_col("orders", "status",    "ALTER TABLE orders ADD COLUMN status TEXT DEFAULT '\u043d\u043e\u0432\u044b\u0439'")
         add_col("orders", "total",     "ALTER TABLE orders ADD COLUMN total REAL DEFAULT 0")
 
         add_col("order_items", "order_id",   "ALTER TABLE order_items ADD COLUMN order_id INTEGER")
@@ -117,6 +117,7 @@ class Database:
         self.execute("UPDATE orders SET status=? WHERE id=?", (status, oid))
 
     def delete_order(self, oid: int):
+        """Delete order and restore product stock for all its items."""
         items = self.fetchall("SELECT product_id, qty FROM order_items WHERE order_id=?", (oid,))
         for it in items:
             if it["product_id"] is not None:
@@ -145,11 +146,25 @@ class Database:
         row = self.fetchone("SELECT COALESCE(stock, 0) AS stock FROM products WHERE id=?", (product_id,))
         return int(row["stock"]) if row else 0
 
+    def get_reserved_stock(self, product_id: int, exclude_order_id: int = None) -> int:
+        """Return total qty of product reserved across all active orders."""
+        if exclude_order_id is not None:
+            row = self.fetchone(
+                "SELECT COALESCE(SUM(qty), 0) AS res FROM order_items "
+                "WHERE product_id=? AND order_id != ?",
+                (product_id, exclude_order_id),
+            )
+        else:
+            row = self.fetchone(
+                "SELECT COALESCE(SUM(qty), 0) AS res FROM order_items WHERE product_id=?",
+                (product_id,),
+            )
+        return int(row["res"]) if row else 0
+
     def add_order_item(self, order_id: int, product_id: int, qty: int, price: float) -> int:
         stock = self.get_product_stock(product_id)
         if qty > stock:
-            raise ValueError("Недостаточно товара на складе.")
-
+            raise ValueError(f"\u041d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0442\u043e\u0432\u0430\u0440\u0430 \u043d\u0430 \u0441\u043a\u043b\u0430\u0434\u0435. \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {stock}.")
         row_id = self.execute(
             "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?,?,?,?)",
             (order_id, product_id, qty, price),
