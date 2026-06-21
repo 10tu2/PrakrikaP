@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QLabel,
-    QStatusBar, QPushButton, QWidget, QHBoxLayout
+    QStatusBar, QPushButton, QWidget, QHBoxLayout, QToolBar
 )
 from PyQt6.QtCore import Qt
 from database import Database, ROLE_ADMIN
@@ -30,6 +30,34 @@ class MainWindow(QMainWindow):
         )
         self.resize(1100, 700)
 
+        # --- Тулбар сверху ---
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+
+        role_str = 'Администратор' if is_admin else 'Сотрудник'
+        lbl_user = QLabel(f"  👤 {user['full_name'] or user['username']}   |   {role_str}  ")
+        toolbar.addWidget(lbl_user)
+
+        # Растяжка, пушает кнопку вправо
+        spacer = QWidget()
+        spacer.setSizePolicy(
+            spacer.sizePolicy().horizontalPolicy(),
+            spacer.sizePolicy().verticalPolicy()
+        )
+        from PyQt6.QtWidgets import QSizePolicy
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        btn_logout = QPushButton("🚪  Выйти")
+        btn_logout.setObjectName("btn_logout")
+        btn_logout.clicked.connect(self._logout)
+        toolbar.addWidget(btn_logout)
+
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+        # --- Вкладки ---
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
 
@@ -45,18 +73,8 @@ class MainWindow(QMainWindow):
         if is_admin:
             tabs.addTab(UsersTab(db, current_user_id=user["id"]), "👤  Пользователи")
 
-        # --- Строка статуса с кнопкой «Выйти» ---
-        bar = QStatusBar()
-        role_str = 'Администратор' if is_admin else 'Сотрудник'
-        bar.addWidget(QLabel(f"  👤 {user['full_name'] or user['username']}   |   {role_str}"))
-
-        btn_logout = QPushButton("🚪  Выйти")
-        btn_logout.setObjectName("btn_logout")
-        btn_logout.setFixedHeight(24)
-        btn_logout.clicked.connect(self._logout)
-        bar.addPermanentWidget(btn_logout)
-
-        self.setStatusBar(bar)
+        # Строка статуса остаётся пустой (can be used for status messages later)
+        self.setStatusBar(QStatusBar())
 
     def _logout(self):
         self.hide()
