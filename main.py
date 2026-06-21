@@ -7,6 +7,7 @@ from ui_tabs import (
     ProductsTab, OrdersTab, ClientsTab,
     SuppliersTab, CategoriesTab, UsersTab,
 )
+from theme import LIGHT_THEME
 
 APP_TITLE = "ПракрикаП — Оптовая торговля"
 DB_PATH   = "trade_store.db"
@@ -31,19 +32,18 @@ class MainWindow(QMainWindow):
         products_tab = ProductsTab(db)
         orders_tab   = OrdersTab(db, on_products_changed=products_tab.load)
 
-        tabs.addTab(products_tab,       "Товары")
-        tabs.addTab(orders_tab,         "Заказы")
-        tabs.addTab(ClientsTab(db),     "Клиенты")
-        tabs.addTab(SuppliersTab(db),   "Поставщики")
-        tabs.addTab(CategoriesTab(db),  "Категории")
+        tabs.addTab(products_tab,       "🛒  Товары")
+        tabs.addTab(orders_tab,         "📋  Заказы")
+        tabs.addTab(ClientsTab(db),     "👥  Клиенты")
+        tabs.addTab(SuppliersTab(db),   "🏭  Поставщики")
+        tabs.addTab(CategoriesTab(db),  "🗂  Категории")
 
         if is_admin:
-            tabs.addTab(UsersTab(db, current_user_id=user["id"]), "Пользователи")
+            tabs.addTab(UsersTab(db, current_user_id=user["id"]), "👤  Пользователи")
 
-        # Строка статуса
         bar = QStatusBar()
         role_str = 'Администратор' if is_admin else 'Сотрудник'
-        bar.addWidget(QLabel(f"  Пользователь: {user['full_name'] or user['username']}  |  {role_str}"))
+        bar.addWidget(QLabel(f"  👤 {user['full_name'] or user['username']}   |   {role_str}"))
         self.setStatusBar(bar)
 
     def closeEvent(self, event):
@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    app.setStyleSheet(LIGHT_THEME)
+
     db  = Database(DB_PATH)
 
     login = LoginDialog(db)

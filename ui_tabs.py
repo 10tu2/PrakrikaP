@@ -10,6 +10,15 @@ from dialogs import (
 from database import ACTIVE_STATUSES, ROLE_ADMIN
 
 
+def _btn(text: str, role: str, object_name: str = "") -> QPushButton:
+    """Создаёт кнопку с нужным role-свойством для стилизации через QSS."""
+    b = QPushButton(text)
+    b.setProperty("role", role)
+    if object_name:
+        b.setObjectName(object_name)
+    return b
+
+
 class BaseTab(QWidget):
     HEADERS = ["ID"]
 
@@ -17,21 +26,27 @@ class BaseTab(QWidget):
         super().__init__()
         self.db = db
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(10, 10, 10, 10)
         if title:
-            layout.addWidget(QLabel(f"<b>{title}</b>"))
+            lbl = QLabel(f"<b>{title}</b>")
+            layout.addWidget(lbl)
         btn_bar = QHBoxLayout()
-        self.btn_add  = QPushButton("+ Добавить")
-        self.btn_edit = QPushButton("✎ Изменить")
-        self.btn_del  = QPushButton("- Удалить")
+        btn_bar.setSpacing(6)
+        self.btn_add  = _btn("＋  Добавить",  "add",    "btn_add")
+        self.btn_edit = _btn("✎  Изменить",  "edit",   "btn_edit")
+        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
         for b in (self.btn_add, self.btn_edit, self.btn_del):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
         self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(28)
         layout.addWidget(self.table)
         self.btn_add.clicked.connect(self.on_add)
         self.btn_edit.clicked.connect(self.on_edit)
@@ -121,20 +136,25 @@ class OrdersTab(QWidget):
         self.db = db
         self._on_products_changed = on_products_changed or (lambda: None)
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(10, 10, 10, 10)
         btn_bar = QHBoxLayout()
-        self.btn_add  = QPushButton("+ Добавить")
-        self.btn_edit = QPushButton("✎ Изменить")
-        self.btn_del  = QPushButton("- Удалить")
-        self.btn_view = QPushButton("👁 Просмотр")
+        btn_bar.setSpacing(6)
+        self.btn_add  = _btn("＋  Добавить",  "add",    "btn_add")
+        self.btn_edit = _btn("✎  Изменить",  "edit",   "btn_edit")
+        self.btn_del  = _btn("✕  Удалить",   "delete", "btn_del")
+        self.btn_view = _btn("👁  Просмотр",  "view",   "btn_view")
         for b in (self.btn_add, self.btn_edit, self.btn_del, self.btn_view):
             btn_bar.addWidget(b)
         btn_bar.addStretch()
         layout.addLayout(btn_bar)
         self.table = QTableWidget()
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(28)
         layout.addWidget(self.table)
         self.btn_add.clicked.connect(self.on_add)
         self.btn_edit.clicked.connect(self.on_edit)
@@ -317,7 +337,6 @@ class UsersTab(BaseTab):
         if rid == self._current_user_id:
             QMessageBox.warning(self, "Нельзя удалить", "Нельзя удалить собственную учётную запись.")
             return
-        # Убеждаемся, что останется хотя бы один администратор
         row = self.db.fetchone("SELECT role FROM users WHERE id=?", (rid,))
         if row and row["role"] == ROLE_ADMIN:
             count = self.db.fetchone(

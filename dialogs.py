@@ -10,7 +10,6 @@ from PyQt6.QtGui import QRegularExpressionValidator
 from database import ACTIVE_STATUSES, ROLE_ADMIN, ROLE_EMPLOYEE
 
 _FORBIDDEN_RE = re.compile(r'[\x00-\x1f<>"\\]')
-# Хранимый формат телефона: только цифры (без +7 и форматирования)
 _PHONE_DIGITS_RE = re.compile(r'^\d{10}$')
 
 
@@ -34,15 +33,9 @@ def _validate_date(value: str) -> str | None:
 
 
 def _validate_phone(raw: str) -> str | None:
-    """
-    raw — это текст из QLineEdit с маской +7 (___) ___-__-__.
-    Проверяем, что введены все 10 цифр (код + номер).
-    Пустое поле — допустимо.
-    """
     digits = re.sub(r'\D', '', raw)
     if not digits:
-        return None   # поле не обязательное
-    # Убираем ведущую 7 (она жёстко стоит в маске)
+        return None
     if digits.startswith('7'):
         digits = digits[1:]
     if len(digits) != 10:
@@ -51,7 +44,6 @@ def _validate_phone(raw: str) -> str | None:
 
 
 def _phone_to_store(raw: str) -> str:
-    """Преобразует текст маски в строку для хранения (+7XXXXXXXXXX или пусто)."""
     digits = re.sub(r'\D', '', raw)
     if not digits:
         return ''
@@ -61,13 +53,9 @@ def _phone_to_store(raw: str) -> str:
 
 
 def _phone_to_mask(stored: str) -> str:
-    """
-    Преобразует хранимую строку (+7XXXXXXXXXX) обратно в формат для маски.
-    Маска ожидает 11 цифр (с ведущей 7).
-    """
     digits = re.sub(r'\D', '', stored)
     if len(digits) == 11 and digits.startswith('7'):
-        return digits          # маска сама расставит разделители
+        return digits
     if len(digits) == 10:
         return '7' + digits
     return digits
@@ -78,15 +66,7 @@ def _show_error(parent, message: str):
 
 
 def _make_phone_field() -> QLineEdit:
-    """
-    QLineEdit с маской +7 (XXX) XXX-XX-XX.
-    Маска: +7 (000) 000-00-00
-      0 — обязательная цифра
-    При сохранении используй _phone_to_store(f.text()).
-    При загрузке:  f.setText(_phone_to_mask(stored)).
-    """
     f = QLineEdit()
-    # Маска: «+7 (» — литералы, потом 3 цифры, «) », 3 цифры, «-», 2 цифры, «-», 2 цифры
     f.setInputMask("+7 (000) 000-00-00;_")
     f.setToolTip("Формат: +7 (XXX) XXX-XX-XX")
     return f
@@ -97,7 +77,7 @@ def _make_sku_field() -> QLineEdit:
     f.setPlaceholderText("ABC-001")
     f.setMaxLength(50)
     validator = QRegularExpressionValidator(
-        QRegularExpression(r'[A-Za-z0-9\-_\./ ]*')
+        QRegularExpression(r'[A-Za-z0-9\-_\.\/  ]*')
     )
     f.setValidator(validator)
     return f
@@ -122,14 +102,19 @@ class _BaseDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.form = QFormLayout()
+        self.form.setSpacing(10)
+        self.form.setContentsMargins(16, 16, 16, 8)
         layout = QVBoxLayout(self)
+        layout.setSpacing(0)
         layout.addLayout(self.form)
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
+        layout.addSpacing(8)
         layout.addWidget(btns)
+        layout.setContentsMargins(0, 0, 0, 12)
 
 
 # ----------------------------------------------------------------------
@@ -392,7 +377,7 @@ class UserDialog(_BaseDialog):
 
         if row is not None:
             self.f_username.setText(row["username"])
-            self.f_username.setEnabled(False)   # логин менять нельзя
+            self.f_username.setEnabled(False)
             self.f_full_name.setText(row["full_name"] or "")
             role_keys = [r[0] for r in self._ROLES]
             try:
@@ -443,20 +428,22 @@ class LoginDialog(QDialog):
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db   = db
-        self.user = None          # заполняется после успешного входа
+        self.user = None
         self.setWindowTitle("Вход в систему")
-        self.setFixedWidth(320)
+        self.setFixedWidth(340)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(28, 28, 28, 24)
 
-        title = QLabel("<h2>ПракрикаП</h2><p style='color:gray;margin:0'>Оптовая торговля</p>")
+        title = QLabel("<h2 style='margin:0'>ПракрикаП</h2><p style='color:#6A7290;margin:4px 0 0 0'>Оптовая торговля</p>")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
+        layout.addSpacing(8)
 
         form = QFormLayout()
+        form.setSpacing(10)
         self.f_user = QLineEdit()
         self.f_user.setPlaceholderText("Введите логин")
         self.f_pass = QLineEdit()
@@ -468,11 +455,12 @@ class LoginDialog(QDialog):
         layout.addLayout(form)
 
         self.lbl_error = QLabel("")
-        self.lbl_error.setStyleSheet("color: red;")
+        self.lbl_error.setStyleSheet("color: #E74C3C; font-size: 12px;")
         self.lbl_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_error)
 
-        btn = QPushButton("Войти")
+        btn = QPushButton("  Войти")
+        btn.setObjectName("btn_login")
         btn.setDefault(True)
         btn.clicked.connect(self._try_login)
         layout.addWidget(btn)
@@ -505,7 +493,7 @@ class OrderDialog(QDialog):
         self.db  = db
         self.row = row
         self.setWindowTitle("Заказ")
-        self.setMinimumWidth(680)
+        self.setMinimumWidth(700)
 
         prods = db.fetchall("SELECT id, name, price, stock FROM products ORDER BY name")
         self._prod_ids   = [p[0] for p in prods]
@@ -523,7 +511,11 @@ class OrderDialog(QDialog):
         self._client_ids = [c[0] for c in clients]
 
         main = QVBoxLayout(self)
+        main.setSpacing(10)
+        main.setContentsMargins(14, 14, 14, 14)
+
         form = QFormLayout()
+        form.setSpacing(10)
         self.f_client = QComboBox()
         self.f_client.addItems([c[1] for c in clients])
         if not self._client_ids:
@@ -539,6 +531,7 @@ class OrderDialog(QDialog):
         main.addWidget(QLabel("<b>Товары в заказе:</b>"))
 
         add_row = QHBoxLayout()
+        add_row.setSpacing(6)
         self.cb_product = QComboBox()
         self.cb_product.addItems(self._prod_names)
         self.cb_product.setMinimumWidth(200)
@@ -550,8 +543,10 @@ class OrderDialog(QDialog):
         self.sp_qty.setMaximum(99999)
         self.lbl_avail = QLabel()
         self._update_qty_max()
-        self.btn_add_item = QPushButton("+ Добавить товар")
-        self.btn_del_item = QPushButton("− Убрать")
+        self.btn_add_item = QPushButton("＋ Добавить товар")
+        self.btn_add_item.setObjectName("btn_add_item")
+        self.btn_del_item = QPushButton("✕ Убрать")
+        self.btn_del_item.setObjectName("btn_del_item")
         add_row.addWidget(QLabel("Товар:"))
         add_row.addWidget(self.cb_product, 1)
         add_row.addWidget(QLabel("Кол-во:"))
@@ -570,12 +565,13 @@ class OrderDialog(QDialog):
         self.items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.items_table.setColumnHidden(0, True)
         self.items_table.setMinimumHeight(180)
+        self.items_table.setAlternatingRowColors(True)
         main.addWidget(self.items_table)
 
         total_row = QHBoxLayout()
         total_row.addStretch()
         self.lbl_total = QLabel("Итого: 0.00")
-        self.lbl_total.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.lbl_total.setStyleSheet("font-weight: bold; font-size: 14px; color: #1A3A6B;")
         total_row.addWidget(self.lbl_total)
         main.addLayout(total_row)
 
@@ -744,7 +740,10 @@ class ViewOrderDialog(QDialog):
         )
         items = db.get_order_items(order_id)
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
         info = QFormLayout()
+        info.setSpacing(8)
         info.addRow("Номер заказа:", QLabel(str(order["id"])))
         info.addRow("Клиент:",       QLabel(order["client"]))
         info.addRow("Дата:",         QLabel(order["date"] or "—"))
@@ -757,6 +756,7 @@ class ViewOrderDialog(QDialog):
         tbl.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         tbl.setMinimumHeight(160)
+        tbl.setAlternatingRowColors(True)
         for r, it in enumerate(items):
             tbl.setItem(r, 0, QTableWidgetItem(it["product"]))
             tbl.setItem(r, 1, QTableWidgetItem(str(it["qty"])))
@@ -766,7 +766,7 @@ class ViewOrderDialog(QDialog):
         total_row = QHBoxLayout()
         total_row.addStretch()
         lbl = QLabel(f"<b>Итого: {float(order['total']):.2f}</b>")
-        lbl.setStyleSheet("font-size: 14px;")
+        lbl.setStyleSheet("font-size: 14px; color: #1A3A6B;")
         total_row.addWidget(lbl)
         layout.addLayout(total_row)
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
